@@ -22,7 +22,7 @@ no bundler). Left pane: raw Markdown + tool buttons. Right pane: live preview + 
 - `src/renderer/` – loaded as classic `<script>` tags in this order:
   - `tools.js` – pure text transforms: `removeNewlines`, `formatTables` (window.MarkdownTools)
   - `scroll-map.js` – pure sync-scroll math (window.ScrollMap)
-  - `export-html.js` – inline-styled HTML for "Copy" (window.ExportHtml; DOM-dependent)
+  - `export-html.js` – clean semantic HTML for "Copy" (no fonts/sizes/colors) (window.ExportHtml; DOM-dependent)
   - `renderer.js` – UI wiring: rendering, document state, toolbar, sync scroll, theme
 - `build/` – icon + DMG background SVG sources **and** their generated PNG/ICNS (committed on
   purpose: electron-builder reads them directly).
@@ -40,8 +40,8 @@ no bundler). Left pane: raw Markdown + tool buttons. Right pane: live preview + 
 - Text tools must leave Markdown structure alone (tables, lists, fenced/indented code, headings).
 - Preview rendering is per top-level marked token, each element tagged `data-line` = source line;
   sync scroll depends on that. Sanitize everything with DOMPurify.
-- Theme colors are CSS variables on `:root` / `:root[data-theme="dark"]`. Copy output always uses
-  light-theme inline colors.
+- Theme colors are CSS variables on `:root` / `:root[data-theme="dark"]`. Copy output sets no colors,
+  fonts or sizes at all (the paste target's own styles apply), so the theme never leaks into it.
 - localStorage keys are prefixed `markdown-helper:`.
 
 ## Gotchas

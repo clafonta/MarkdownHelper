@@ -1,55 +1,53 @@
 /**
- * Turns the rendered preview into self-contained HTML for the clipboard. Email clients and word
- * processors ignore our stylesheet, so every element gets inline styles. Colors are always the
- * light theme, so a copy made in dark mode doesn't paste as light text on a white page.
+ * Turns the rendered preview into clean, semantic HTML for the clipboard.
+ *
+ * The goal is a "clear formatting" style paste: real <h1>/<p>/<ul>/<strong>/<table> tags and no
+ * fonts, sizes, colors or line heights, so the destination (Google Docs, Word, Outlook, Gmail,
+ * Mail) applies its own body font and heading styles. Only what the Markdown itself means is kept
+ * as inline style: monospace code, table borders, a quote's left rule, and a small gap after each
+ * block (several editors drop default margins, which runs paragraphs into lists).
  */
 (function (root) {
-  const FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif';
-  const MONO = 'font-family: SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;';
+  const MONO = 'font-family: Consolas, Menlo, "Courier New", monospace;';
   const BORDER = '#d0d7de';
-  const MUTED = '#59636e';
-  const HEADING = 'font-weight: 600; line-height: 1.25; margin: 24px 0 16px;';
+  const GAP = 'margin: 0 0 10pt;';
 
   const STYLES = {
-    H1: `${HEADING} font-size: 2em; padding-bottom: 0.3em; border-bottom: 1px solid ${BORDER};`,
-    H2: `${HEADING} font-size: 1.5em; padding-bottom: 0.3em; border-bottom: 1px solid ${BORDER};`,
-    H3: `${HEADING} font-size: 1.25em;`,
-    H4: `${HEADING} font-size: 1em;`,
-    H5: `${HEADING} font-size: 0.875em;`,
-    H6: `${HEADING} font-size: 0.85em; color: ${MUTED};`,
-    P: 'margin: 0 0 16px;',
-    UL: 'margin: 0 0 16px; padding-left: 2em;',
-    OL: 'margin: 0 0 16px; padding-left: 2em;',
-    LI: 'margin: 0.25em 0;',
-    BLOCKQUOTE: `margin: 0 0 16px; padding: 0 1em; color: ${MUTED}; border-left: 4px solid ${BORDER};`,
-    PRE: `${MONO} font-size: 85%; line-height: 1.45; margin: 0 0 16px; padding: 16px; background: #f6f8fa; border-radius: 6px; white-space: pre; overflow: auto;`,
-    CODE: `${MONO} font-size: 85%; padding: 0.2em 0.4em; background: #eff1f3; border-radius: 6px;`,
-    TABLE: 'border-collapse: collapse; border-spacing: 0; margin: 0 0 16px;',
-    TH: `padding: 6px 13px; border: 1px solid ${BORDER}; font-weight: 600; background: #f6f8fa; text-align: left;`,
-    TD: `padding: 6px 13px; border: 1px solid ${BORDER};`,
-    A: 'color: #0969da; text-decoration: underline;',
-    HR: `height: 0; margin: 24px 0; border: 0; border-top: 1px solid ${BORDER};`,
+    P: GAP,
+    UL: `${GAP} padding-left: 2em;`,
+    OL: `${GAP} padding-left: 2em;`,
+    BLOCKQUOTE: `${GAP} padding: 0 0 0 1em; border-left: 3px solid ${BORDER};`,
+    PRE: `${GAP} ${MONO} white-space: pre;`,
+    CODE: MONO,
+    TABLE: `${GAP} border-collapse: collapse;`,
+    TH: `padding: 4pt 8pt; border: 1px solid ${BORDER}; font-weight: bold;`,
+    TD: `padding: 4pt 8pt; border: 1px solid ${BORDER};`,
+    HR: `${GAP} border: 0; border-top: 1px solid ${BORDER};`,
     IMG: 'max-width: 100%;',
   };
-  const CODE_IN_PRE = `${MONO} font-size: inherit; padding: 0; background: transparent; border-radius: 0;`;
 
   /** Returns { html, text } for the given rendered preview element. */
   function buildExport(previewEl) {
     const clone = previewEl.cloneNode(true);
     for (const el of clone.querySelectorAll('*')) {
       for (const attr of [...el.attributes]) {
-        if (attr.name.startsWith('data-') || attr.name === 'class' || attr.name === 'id') {
+        if (attr.name.startsWith('data-') || ['class', 'id', 'style'].includes(attr.name)) {
           el.removeAttribute(attr.name);
         }
       }
       let style = STYLES[el.tagName] || '';
-      if (el.tagName === 'CODE' && el.parentElement && el.parentElement.tagName === 'PRE') style = CODE_IN_PRE;
+      // A list's last item, or a paragraph inside a list item / quote, doesn't need its own gap.
+      if (el.tagName === 'P' && el.parentElement && ['LI', 'BLOCKQUOTE'].includes(el.parentElement.tagName)
+          && !el.nextElementSibling) style = 'margin: 0;';
+      if ((el.tagName === 'UL' || el.tagName === 'OL') && el.parentElement && el.parentElement.tagName === 'LI') {
+        style = 'margin: 0; padding-left: 2em;';
+      }
+      if (el.tagName === 'CODE' && el.parentElement && el.parentElement.tagName === 'PRE') style = '';
       const align = el.getAttribute('align');
-      if ((el.tagName === 'TH' || el.tagName === 'TD') && align) style += ` text-align: ${align};`;
+      if (el.tagName === 'TH' || el.tagName === 'TD') style += ` text-align: ${align || 'left'};`;
       if (style) el.setAttribute('style', style);
     }
-    const html = `<div style="font-family: ${FONT.replace(/"/g, '&quot;')}; font-size: 14px; line-height: 1.5; color: #1f2328;">${clone.innerHTML}</div>`;
-    return { html, text: previewEl.innerText.trim() };
+    return { html: clone.innerHTML, text: previewEl.innerText.trim() };
   }
 
   root.ExportHtml = { buildExport };
