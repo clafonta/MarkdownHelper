@@ -40,7 +40,16 @@ and you're asked to save before closing, quitting, or replacing the document.
 - **Format tables** – repairs tables whose rows were merged onto one line and aligns every column.
 
 Both apply to the selection, or to the whole document when nothing is selected. Cmd+Z undoes them.
-The transforms live in `src/renderer/tools.js`; run their unit tests with `npm test`.
+
+In the preview header:
+
+- **Sync scroll** – keeps the editor and preview on the same content as you scroll either one
+  (on by default, remembered between launches).
+- **Copy** (also Edit → Copy Formatted, Shift+Cmd+C) – copies the rendered preview as rich text with
+  inline styles, ready to paste into Mail, Outlook, Gmail, Google Docs or Word. Plain text is
+  included for apps that don't accept formatting.
+The transforms live in `src/renderer/tools.js` and the scroll-sync math in `src/renderer/scroll-map.js`;
+run their unit tests with `npm test`.
 
 ## Building the app
 

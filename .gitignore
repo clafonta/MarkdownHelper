@@ -4,6 +4,7 @@ node_modules/
 # Build output from `npm run dist` (.app, .dmg, .zip, .blockmap, builder configs)
 dist/
 out/
+screenshots/
 
 # Logs and debug output
 *.log

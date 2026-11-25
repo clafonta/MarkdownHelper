@@ -105,8 +105,9 @@ body {
   outline-offset: -8px;
 }
 
-.theme-toggle {
-  -webkit-app-region: no-drag;
+.theme-toggle { -webkit-app-region: no-drag; }
+
+.toggle {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -119,7 +120,7 @@ body {
   cursor: pointer;
   border-radius: 6px;
 }
-.theme-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .switch {
   position: relative;
@@ -140,8 +141,29 @@ body {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
   transition: transform 0.18s ease;
 }
-.theme-toggle[aria-checked="true"] .switch { background: var(--accent); }
-.theme-toggle[aria-checked="true"] .switch-thumb { transform: translateX(14px); }
+.toggle[aria-checked="true"] .switch { background: var(--accent); }
+.toggle[aria-checked="true"] .switch-thumb { transform: translateX(14px); }
+
+/* Compact switch for pane headers */
+.toggle-sm { font-size: 12px; gap: 6px; padding: 2px 4px; }
+.toggle-sm .switch { width: 26px; height: 16px; border-radius: 8px; }
+.toggle-sm .switch-thumb { width: 12px; height: 12px; }
+.toggle-sm[aria-checked="true"] .switch-thumb { transform: translateX(10px); }
+
+.pane-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.tool-btn.is-done { color: var(--accent); border-color: var(--accent); }
+#btn-copy { min-width: 84px; } /* room for "Copied ✓" without the header shifting */
+
+/* Hide the word count when the preview pane gets narrow, so the controls always fit. */
+.pane { container-type: inline-size; }
+@container (max-width: 520px) {
+  .pane-meta { display: none; }
+}
 
 /* ---------- Workspace ---------- */
 .workspace {
@@ -209,23 +231,43 @@ body {
 .tool-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* ---------- Editor ---------- */
+.pane-editor { position: relative; }
+
+/* .editor-mirror must lay text out exactly like .editor: it measures where each source line
+   sits (including soft wraps) for synchronized scrolling. */
+.editor, .editor-mirror {
+  padding: 20px 24px;
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+  line-height: 1.6;
+  tab-size: 2;
+  letter-spacing: normal;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
 .editor {
   flex: 1 1 auto;
   width: 100%;
   resize: none;
   border: 0;
   outline: none;
-  padding: 20px 24px;
   background: var(--bg-editor);
   color: var(--text);
-  font-family: var(--font-mono);
-  font-size: 13.5px;
-  line-height: 1.6;
-  tab-size: 2;
+}
+
+.editor-mirror {
+  position: absolute;
+  top: 0;
+  left: 0;
+  visibility: hidden;
+  pointer-events: none;
+  border: 0;
 }
 
 /* ---------- Preview ---------- */
 .preview {
+  position: relative; /* makes block offsetTop relative to the scroll container */
   flex: 1 1 auto;
   overflow: auto;
   padding: 20px 32px 48px;

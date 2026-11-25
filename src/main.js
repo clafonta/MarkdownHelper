@@ -1,4 +1,6 @@
-const { app, BrowserWindow, Menu, dialog, ipcMain, nativeTheme, shell } = require('electron');
+const {
+  app, BrowserWindow, ClipboardItem, Menu, clipboard, dialog, ipcMain, nativeTheme, shell,
+} = require('electron');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 
@@ -133,6 +135,19 @@ ipcMain.on('app:close-response', (event, proceed) => {
   if (quitting) app.quit();
 });
 
+// Rich copy: HTML for mail/docs apps, plain text for everything else.
+// Electron 45+ clipboard API: async, takes W3C-style ClipboardItems keyed by MIME type.
+ipcMain.handle('clipboard:write-rich', async (_event, { html, text }) => {
+  if (typeof html !== 'string' || typeof text !== 'string') return false;
+  try {
+    await clipboard.write([new ClipboardItem({ 'text/html': html, 'text/plain': text })]);
+    return true;
+  } catch (err) {
+    console.error('Copy failed:', err);
+    return false;
+  }
+});
+
 // Keep native chrome (scrollbars, dialogs, window background) in sync with the app theme.
 ipcMain.on('theme:set', (_event, mode) => {
   nativeTheme.themeSource = mode === 'dark' ? 'dark' : 'light';
@@ -169,7 +184,25 @@ function buildMenu() {
         isMac ? { role: 'close' } : { role: 'quit' },
       ],
     },
-    { role: 'editMenu' },
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        {
+          label: 'Copy Formatted',
+          accelerator: 'CmdOrCtrl+Shift+C',
+          click: () => sendToFocused('menu:copy-formatted'),
+        },
+        { role: 'paste' },
+        { role: 'pasteAndMatchStyle' },
+        { role: 'delete' },
+        { role: 'selectAll' },
+      ],
+    },
     { role: 'viewMenu' },
     { role: 'windowMenu' },
   ];

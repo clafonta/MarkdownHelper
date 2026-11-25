@@ -9,16 +9,37 @@
 
   document.documentElement.dataset.platform = bridge.platform || 'web';
 
+  const { tokenStartLines, createScrollMap, interpolate } = window.ScrollMap;
+
   // ---------- Preview rendering ----------
   marked.setOptions({ gfm: true, breaks: false });
 
+  /**
+   * Renders block by block so every top-level preview element can be tagged with the source
+   * line it came from (data-line). Synchronized scrolling uses those tags as anchors.
+   */
   let renderQueued = false;
   function render() {
     renderQueued = false;
     const source = editor.value;
-    preview.innerHTML = DOMPurify.sanitize(marked.parse(source));
+    const tokens = marked.lexer(source);
+    const startLines = tokenStartLines(tokens);
+    const fragment = document.createDocumentFragment();
+    tokens.forEach((token, i) => {
+      if (token.type === 'space') return;
+      const single = [token];
+      single.links = tokens.links; // reference-style links are defined document-wide
+      const html = DOMPurify.sanitize(marked.parser(single), { RETURN_DOM_FRAGMENT: true });
+      for (const el of html.children) el.dataset.line = String(startLines[i]);
+      fragment.append(html);
+    });
+    preview.replaceChildren(fragment);
+
     const words = source.trim() ? source.trim().split(/\s+/).length : 0;
     stats.textContent = `${words} words · ${source.length} chars`;
+
+    invalidateScrollMap();
+    if (syncEnabled) syncScroll(editor);
   }
   function scheduleRender() {
     if (renderQueued) return;
@@ -26,6 +47,99 @@
     requestAnimationFrame(render);
   }
   editor.addEventListener('input', scheduleRender);
+
+  // ---------- Synchronized scrolling ----------
+  const SYNC_KEY = 'markdown-helper:sync-scroll';
+  const syncToggle = document.getElementById('sync-toggle');
+  let syncEnabled = true;
+  try { syncEnabled = localStorage.getItem(SYNC_KEY) !== 'off'; } catch { /* default on */ }
+
+  // Hidden twin of the editor, used to measure where each source line sits (soft wraps included).
+  const mirror = document.createElement('div');
+  mirror.className = 'editor-mirror';
+  mirror.setAttribute('aria-hidden', 'true');
+  editor.parentElement.appendChild(mirror);
+
+  let scrollMap = null; // built lazily, thrown away whenever text or layout changes
+  function invalidateScrollMap() { scrollMap = null; }
+
+  function measureLineTops() {
+    mirror.style.width = `${editor.clientWidth}px`;
+    const lines = editor.value.split('\n');
+    mirror.replaceChildren(...lines.map((line) => {
+      const div = document.createElement('div');
+      div.textContent = line || '​'; // keep empty lines one line tall
+      return div;
+    }));
+    const tops = Array.from(mirror.children, (div) => div.offsetTop);
+    mirror.replaceChildren();
+    return tops;
+  }
+
+  function getScrollMap() {
+    if (scrollMap) return scrollMap;
+    const lineTops = measureLineTops();
+    const pairs = [];
+    for (const el of preview.children) {
+      const top = lineTops[Number(el.dataset.line)];
+      if (top !== undefined) pairs.push([top, el.offsetTop]);
+    }
+    scrollMap = createScrollMap(
+      pairs,
+      editor.scrollHeight - editor.clientHeight,
+      preview.scrollHeight - preview.clientHeight,
+    );
+    return scrollMap;
+  }
+
+  // Setting one pane's scrollTop fires a scroll event on it; ignore that echo briefly.
+  let echoTarget = null;
+  let echoTimer = 0;
+  function syncScroll(source) {
+    if (!syncEnabled) return;
+    const target = source === editor ? preview : editor;
+    const y = interpolate(getScrollMap(), source.scrollTop, source === editor ? 0 : 1);
+    if (Math.abs(target.scrollTop - y) < 1) return;
+    echoTarget = target;
+    clearTimeout(echoTimer);
+    echoTimer = setTimeout(() => { echoTarget = null; }, 100);
+    target.scrollTop = y;
+  }
+  editor.addEventListener('scroll', () => { if (echoTarget !== editor) syncScroll(editor); });
+  preview.addEventListener('scroll', () => { if (echoTarget !== preview) syncScroll(preview); });
+
+  // Layout changes (window resize, images finishing loading) move things around.
+  new ResizeObserver(invalidateScrollMap).observe(editor);
+  new ResizeObserver(invalidateScrollMap).observe(preview);
+  preview.addEventListener('load', invalidateScrollMap, true);
+
+  function applySync(enabled, persist) {
+    syncEnabled = enabled;
+    syncToggle.setAttribute('aria-checked', String(enabled));
+    if (persist) {
+      try { localStorage.setItem(SYNC_KEY, enabled ? 'on' : 'off'); } catch { /* ignore */ }
+    }
+    if (enabled) syncScroll(editor);
+  }
+  applySync(syncEnabled, false);
+  syncToggle.addEventListener('click', () => applySync(!syncEnabled, true));
+
+  // ---------- Copy formatted ----------
+  const copyBtn = document.getElementById('btn-copy');
+  let copyResetTimer = 0;
+  async function copyFormatted() {
+    const { html, text } = window.ExportHtml.buildExport(preview);
+    let ok = false;
+    try { ok = await bridge.copyRich(html, text); } catch (err) { console.error(err); }
+    copyBtn.textContent = ok ? 'Copied ✓' : 'Copy failed';
+    copyBtn.classList.toggle('is-done', ok);
+    clearTimeout(copyResetTimer);
+    copyResetTimer = setTimeout(() => {
+      copyBtn.textContent = 'Copy';
+      copyBtn.classList.remove('is-done');
+    }, 1600);
+  }
+  copyBtn.addEventListener('click', copyFormatted);
 
   // Tab inserts two spaces instead of moving focus.
   editor.addEventListener('keydown', (e) => {
@@ -187,6 +301,7 @@
       case 'open-path': return openFile(arg);
       case 'save': return save(false);
       case 'save-as': return save(true);
+      case 'copy-formatted': return copyFormatted();
       case 'request-close': return bridge.respondToClose(await confirmDiscard());
       default: return undefined;
     }

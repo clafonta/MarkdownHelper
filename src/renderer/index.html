@@ -16,8 +16,8 @@
       <span id="doc-name" class="doc-name">Untitled</span>
       <span id="doc-dirty" class="doc-dirty" hidden>Edited</span>
     </div>
-    <button id="theme-toggle" class="theme-toggle" type="button" role="switch" aria-checked="false" aria-label="Dark mode">
-      <span class="theme-toggle-label">Dark mode</span>
+    <button id="theme-toggle" class="toggle theme-toggle" type="button" role="switch" aria-checked="false" aria-label="Dark mode">
+      <span class="toggle-label">Dark mode</span>
       <span class="switch" aria-hidden="true"><span class="switch-thumb"></span></span>
     </button>
   </header>
@@ -45,7 +45,18 @@
     <section class="pane pane-preview" aria-label="Formatted preview">
       <div class="pane-header">
         <span class="pane-title">Preview</span>
-        <span id="stats" class="pane-meta"></span>
+        <div class="pane-actions">
+          <span id="stats" class="pane-meta"></span>
+          <button id="sync-toggle" class="toggle toggle-sm" type="button" role="switch" aria-checked="true"
+            title="Keep the editor and preview scrolled to the same place">
+            <span class="toggle-label">Sync scroll</span>
+            <span class="switch" aria-hidden="true"><span class="switch-thumb"></span></span>
+          </button>
+          <button id="btn-copy" class="tool-btn" type="button"
+            title="Copy the formatted preview, ready to paste into an email or document (⇧⌘C)">
+            Copy
+          </button>
+        </div>
       </div>
       <article id="preview" class="preview markdown-body"></article>
     </section>
@@ -54,6 +65,8 @@
   <script src="../../node_modules/marked/lib/marked.umd.js"></script>
   <script src="../../node_modules/dompurify/dist/purify.min.js"></script>
   <script src="tools.js"></script>
+  <script src="scroll-map.js"></script>
+  <script src="export-html.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>

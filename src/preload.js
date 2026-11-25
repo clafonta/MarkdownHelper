@@ -11,18 +11,20 @@ contextBridge.exposeInMainWorld('markdownHelper', {
     ipcRenderer.invoke('file:save', { filePath, content, saveAs }),
   confirmUnsaved: (fileName) => ipcRenderer.invoke('dialog:confirm-unsaved', fileName),
   getPathForFile: (file) => webUtils.getPathForFile(file),
+  copyRich: (html, text) => ipcRenderer.invoke('clipboard:write-rich', { html, text }),
 
   // Document state / window lifecycle
   reportState: (filePath, dirty) => ipcRenderer.send('doc:state', { filePath, dirty }),
   respondToClose: (proceed) => ipcRenderer.send('app:close-response', proceed),
 
-  // Menu commands: 'new' | 'open' | 'save' | 'save-as' | 'request-close'
+  // Menu commands: 'new' | 'open' | 'save' | 'save-as' | 'copy-formatted' | 'request-close'
   onCommand: (handler) => {
     const map = {
       'menu:new': 'new',
       'menu:open': 'open',
       'menu:save': 'save',
       'menu:save-as': 'save-as',
+      'menu:copy-formatted': 'copy-formatted',
       'app:request-close': 'request-close',
     };
     for (const [channel, command] of Object.entries(map)) {
