@@ -1,0 +1,19 @@
+#!/bin/sh
+# mdh — open Markdown files in Markdown Helper from the terminal.
+#
+#   mdh                 launch / focus Markdown Helper
+#   mdh notes.md        open notes.md (created empty if it doesn't exist yet)
+#
+# Install (no admin needed): ln -s "$PWD/scripts/mdh" ~/.local/bin/mdh
+APP="Markdown Helper"
+
+[ $# -eq 0 ] && exec open -a "$APP"
+
+for f in "$@"; do
+  if [ -d "$f" ]; then
+    echo "mdh: $f is a directory" >&2; exit 1
+  fi
+  [ -e "$f" ] || : > "$f" || exit 1
+done
+
+exec open -a "$APP" "$@"
