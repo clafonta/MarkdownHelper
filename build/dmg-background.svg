@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="540" height="380" viewBox="0 0 540 380">
+  <!-- DMG window background. Icons are placed by package.json build.dmg.contents at (140,160) and (400,160). -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f7f8fc"/>
+      <stop offset="1" stop-color="#e9ebf5"/>
+    </linearGradient>
+  </defs>
+  <rect width="540" height="380" fill="url(#bg)"/>
+  <!-- arrow between the app and the Applications folder -->
+  <path d="M 218 160 C 250 140, 290 140, 322 160" fill="none" stroke="#6a5be0" stroke-width="4" stroke-linecap="round" opacity="0.7"/>
+  <path d="M 312 148 L 326 163 L 307 168" fill="none" stroke="#6a5be0" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" opacity="0.7"/>
+  <g font-family="-apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif" text-anchor="middle">
+    <text x="270" y="290" font-size="15" font-weight="600" fill="#2a2d3a">Drag Markdown Helper to Applications to install</text>
+    <text x="270" y="318" font-size="12" fill="#5d6273">No admin rights? Drag it into the Applications folder</text>
+    <text x="270" y="336" font-size="12" fill="#5d6273">inside your Home folder (~/Applications) instead.</text>
+  </g>
+</svg>

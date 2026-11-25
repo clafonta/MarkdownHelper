@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Markdown Helper app icon. Follows the macOS icon grid: 824px tile centered on a 1024 canvas. -->
+  <defs>
+    <!-- Multi-color base: pink → orange → yellow → green → blue → violet, corner to corner -->
+    <linearGradient id="rainbow" x1="100" y1="100" x2="924" y2="924" gradientUnits="userSpaceOnUse">
+      <stop offset="0"    stop-color="#ff3d7f"/>
+      <stop offset="0.2"  stop-color="#ff8a3d"/>
+      <stop offset="0.38" stop-color="#ffd23f"/>
+      <stop offset="0.56" stop-color="#2fd39a"/>
+      <stop offset="0.76" stop-color="#2f8cff"/>
+      <stop offset="1"    stop-color="#8a4dff"/>
+    </linearGradient>
+    <!-- Soft color blooms layered on top so it reads as a blend, not stripes -->
+    <radialGradient id="bloomPink" cx="180" cy="840" r="520" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ff4fd8" stop-opacity="0.75"/>
+      <stop offset="1" stop-color="#ff4fd8" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="bloomCyan" cx="860" cy="170" r="480" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#28e0ff" stop-opacity="0.7"/>
+      <stop offset="1" stop-color="#28e0ff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="sheen" x1="0" y1="100" x2="0" y2="924" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.25"/>
+      <stop offset="0.45" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <clipPath id="tile">
+      <rect x="100" y="100" width="824" height="824" rx="185"/>
+    </clipPath>
+    <filter id="shadow" filterUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
+      <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#000" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+
+  <!-- Tile -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#rainbow)" filter="url(#shadow)"/>
+  <g clip-path="url(#tile)">
+    <rect x="100" y="100" width="824" height="824" fill="url(#bloomPink)"/>
+    <rect x="100" y="100" width="824" height="824" fill="url(#bloomCyan)"/>
+    <rect x="100" y="100" width="824" height="824" fill="url(#sheen)"/>
+  </g>
+
+  <!-- Semi-transparent black disc with a faint rim -->
+  <circle cx="512" cy="512" r="318" fill="#000" fill-opacity="0.55"/>
+  <circle cx="512" cy="512" r="316" fill="none" stroke="#fff" stroke-opacity="0.18" stroke-width="4"/>
+
+  <!-- MDH -->
+  <text x="512" y="512" dy="0.35em" text-anchor="middle"
+        font-family="'SF Pro Display', 'Helvetica Neue', Helvetica, Arial, sans-serif"
+        font-size="190" font-weight="800" letter-spacing="4" fill="#fff">MDH</text>
+</svg>

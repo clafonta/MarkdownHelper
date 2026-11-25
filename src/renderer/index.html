@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta
+    http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:;"
+  />
+  <title>Markdown Helper</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <h1 class="app-title">Markdown Helper</h1>
+    <div class="doc-info" aria-live="polite">
+      <span id="doc-name" class="doc-name">Untitled</span>
+      <span id="doc-dirty" class="doc-dirty" hidden>Edited</span>
+    </div>
+    <button id="theme-toggle" class="theme-toggle" type="button" role="switch" aria-checked="false" aria-label="Dark mode">
+      <span class="theme-toggle-label">Dark mode</span>
+      <span class="switch" aria-hidden="true"><span class="switch-thumb"></span></span>
+    </button>
+  </header>
+
+  <main class="workspace">
+    <section class="pane pane-editor" aria-label="Markdown source">
+      <div class="pane-header">
+        <span class="pane-title">Markdown</span>
+        <div class="toolbar" role="toolbar" aria-label="Editing tools">
+          <button id="btn-remove-newlines" class="tool-btn" type="button"
+            title="Join line breaks inside paragraphs (applies to selection, or whole document if nothing is selected)">
+            Remove new lines
+          </button>
+          <button id="btn-format-tables" class="tool-btn" type="button"
+            title="Repair and align Markdown tables (applies to selected lines, or whole document if nothing is selected)">
+            Format tables
+          </button>
+        </div>
+      </div>
+      <textarea id="editor" class="editor" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off"></textarea>
+    </section>
+
+    <div class="divider" aria-hidden="true"></div>
+
+    <section class="pane pane-preview" aria-label="Formatted preview">
+      <div class="pane-header">
+        <span class="pane-title">Preview</span>
+        <span id="stats" class="pane-meta"></span>
+      </div>
+      <article id="preview" class="preview markdown-body"></article>
+    </section>
+  </main>
+
+  <script src="../../node_modules/marked/lib/marked.umd.js"></script>
+  <script src="../../node_modules/dompurify/dist/purify.min.js"></script>
+  <script src="tools.js"></script>
+  <script src="renderer.js"></script>
+</body>
+</html>

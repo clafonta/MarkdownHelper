@@ -1,0 +1,87 @@
+{
+  "name": "markdown-helper",
+  "version": "0.1.0",
+  "description": "A lightweight two-pane Markdown editor",
+  "main": "src/main.js",
+  "private": true,
+  "scripts": {
+    "prestart": "node scripts/brand-dev-electron.js",
+    "start": "electron .",
+    "postinstall": "node scripts/brand-dev-electron.js",
+    "test": "node --test test/",
+    "assets": "electron scripts/make-assets.js",
+    "dist": "electron-builder --mac --arm64 --x64",
+    "dist:arm64": "electron-builder --mac --arm64",
+    "dist:x64": "electron-builder --mac --x64"
+  },
+  "dependencies": {
+    "dompurify": "^3.5.0",
+    "marked": "^18.3.0"
+  },
+  "devDependencies": {
+    "electron": "^45.5.0",
+    "electron-builder": "^26.18.0"
+  },
+  "productName": "Markdown Helper",
+  "author": "Chad Lafontaine",
+  "build": {
+    "appId": "com.markdownhelper.app",
+    "productName": "Markdown Helper",
+    "copyright": "Copyright © 2026 Chad Lafontaine",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "icon": "build/icon.icns",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "identity": "-",
+      "artifactName": "Markdown-Helper-${version}-${arch}.${ext}",
+      "darkModeSupport": true,
+      "hardenedRuntime": false
+    },
+    "fileAssociations": [
+      {
+        "ext": [
+          "md",
+          "markdown",
+          "mdown",
+          "mkd"
+        ],
+        "name": "Markdown Document",
+        "role": "Editor",
+        "rank": "Alternate"
+      }
+    ],
+    "dmg": {
+      "title": "Markdown Helper",
+      "background": "build/background.png",
+      "window": {
+        "width": 540,
+        "height": 380
+      },
+      "iconSize": 96,
+      "contents": [
+        {
+          "x": 140,
+          "y": 160,
+          "type": "file"
+        },
+        {
+          "x": 400,
+          "y": 160,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    }
+  }
+}
