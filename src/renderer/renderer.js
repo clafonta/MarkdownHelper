@@ -124,6 +124,97 @@
   applySync(syncEnabled, false);
   syncToggle.addEventListener('click', () => applySync(!syncEnabled, true));
 
+  // ---------- Resizable panes ----------
+  const SPLIT_KEY = 'markdown-helper:split';
+  const DEFAULT_SPLIT = 0.5;
+  const workspace = document.querySelector('.workspace');
+  const divider = document.getElementById('divider');
+  const paneMinWidth = () =>
+    parseFloat(getComputedStyle(editor.parentElement).minWidth) || 0;
+
+  let split = DEFAULT_SPLIT;
+  try {
+    const saved = parseFloat(localStorage.getItem(SPLIT_KEY));
+    if (saved > 0 && saved < 1) split = saved;
+  } catch { /* default */ }
+
+  /** Editor share of the workspace, clamped so both panes keep their minimum width. */
+  function clampSplit(ratio) {
+    const total = workspace.clientWidth - divider.offsetWidth;
+    if (total <= 0) return ratio;
+    const min = Math.min(0.5, paneMinWidth() / total);
+    return Math.min(1 - min, Math.max(min, ratio));
+  }
+
+  // `split` is what the user chose; the applied value may be clamped tighter in a narrow window.
+  function applySplit(ratio, persist) {
+    const applied = clampSplit(ratio);
+    split = ratio === split ? split : applied;
+    workspace.style.setProperty('--split', `${(applied * 100).toFixed(3)}%`);
+    divider.setAttribute('aria-valuenow', String(Math.round(applied * 100)));
+    if (persist) {
+      try { localStorage.setItem(SPLIT_KEY, String(split)); } catch { /* ignore */ }
+    }
+  }
+  applySplit(split, false);
+
+  divider.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    divider.setPointerCapture(e.pointerId);
+    document.body.classList.add('is-resizing');
+    const rect = workspace.getBoundingClientRect();
+    // Keep the grab point under the cursor instead of snapping the divider to it.
+    const grabOffset = e.clientX - divider.getBoundingClientRect().left;
+    let frame = 0;
+    let lastX = e.clientX;
+    const onMove = (ev) => {
+      lastX = ev.clientX;
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        const total = rect.width - divider.offsetWidth;
+        applySplit((lastX - grabOffset - rect.left) / total, false);
+      });
+    };
+    const onUp = () => {
+      cancelAnimationFrame(frame);
+      divider.removeEventListener('pointermove', onMove);
+      divider.removeEventListener('pointerup', onUp);
+      divider.removeEventListener('pointercancel', onUp);
+      document.body.classList.remove('is-resizing');
+      applySplit((lastX - grabOffset - rect.left) / (rect.width - divider.offsetWidth), true);
+      // Text reflowed in both panes; line the preview back up with the editor.
+      syncScroll(editor);
+    };
+    divider.addEventListener('pointermove', onMove);
+    divider.addEventListener('pointerup', onUp);
+    divider.addEventListener('pointercancel', onUp);
+  });
+
+  divider.addEventListener('dblclick', () => {
+    applySplit(DEFAULT_SPLIT, true);
+    syncScroll(editor);
+  });
+
+  divider.addEventListener('keydown', (e) => {
+    const step = e.shiftKey ? 0.1 : 0.02;
+    const current = clampSplit(split);
+    let next;
+    if (e.key === 'ArrowLeft') next = current - step;
+    else if (e.key === 'ArrowRight') next = current + step;
+    else if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = 1;
+    else if (e.key === 'Enter') next = DEFAULT_SPLIT;
+    else return;
+    e.preventDefault();
+    applySplit(next, true);
+    syncScroll(editor);
+  });
+
+  // The saved ratio is kept as the window resizes; only re-clamp to the minimum widths.
+  window.addEventListener('resize', () => applySplit(split, false));
+
   // ---------- Copy formatted ----------
   const copyBtn = document.getElementById('btn-copy');
   let copyResetTimer = 0;

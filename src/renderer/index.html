@@ -23,7 +23,7 @@
   </header>
 
   <main class="workspace">
-    <section class="pane pane-editor" aria-label="Markdown source">
+    <section id="pane-editor" class="pane pane-editor" aria-label="Markdown source">
       <div class="pane-header">
         <span class="pane-title">Markdown</span>
         <div class="toolbar" role="toolbar" aria-label="Editing tools">
@@ -40,7 +40,10 @@
       <textarea id="editor" class="editor" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off"></textarea>
     </section>
 
-    <div class="divider" aria-hidden="true"></div>
+    <div id="divider" class="divider" role="separator" tabindex="0"
+      aria-orientation="vertical" aria-label="Resize panes" aria-controls="pane-editor"
+      aria-valuemin="0" aria-valuemax="100" aria-valuenow="50"
+      title="Drag to resize · double-click to reset"></div>
 
     <section class="pane pane-preview" aria-label="Formatted preview">
       <div class="pane-header">

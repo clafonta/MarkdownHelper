@@ -45,9 +45,14 @@ In the preview header:
 
 - **Sync scroll** – keeps the editor and preview on the same content as you scroll either one
   (on by default, remembered between launches).
-- **Copy** (also Edit → Copy Formatted, Shift+Cmd+C) – copies the rendered preview as rich text with
-  inline styles, ready to paste into Mail, Outlook, Gmail, Google Docs or Word. Plain text is
+- **Copy** (also Edit → Copy Formatted, Shift+Cmd+C) – copies the rendered preview as clean rich
+  text: headings, bold/italic, lists, links, code and tables, but no fonts, sizes or colors, so it
+  takes on the style of wherever you paste it (Google Docs headings, your email font, etc.). Plain text is
   included for apps that don't accept formatting.
+Drag the divider between the panes to resize them (double-click it to reset to 50/50). It can
+also be focused with Tab and moved with the arrow keys (Shift for bigger steps). The split is
+remembered between launches.
+
 The transforms live in `src/renderer/tools.js` and the scroll-sync math in `src/renderer/scroll-map.js`;
 run their unit tests with `npm test`.
 
