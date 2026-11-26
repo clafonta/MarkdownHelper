@@ -11,6 +11,10 @@
   --btn-bg: #ffffff;
   --btn-hover: #eef0f3;
   --switch-off: #c9ced6;
+  --json-key: #0550ae;
+  --json-string: #0a7d32;
+  --json-number: #953800;
+  --json-literal: #8250df;
   --header-h: 48px;
   --pane-header-h: 40px;
   --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
@@ -31,6 +35,10 @@
   --btn-bg: #2b2e33;
   --btn-hover: #34373d;
   --switch-off: #4a4e56;
+  --json-key: #79c0ff;
+  --json-string: #7ee787;
+  --json-number: #ffa657;
+  --json-literal: #d2a8ff;
   color-scheme: dark;
 }
 
@@ -156,6 +164,18 @@ body {
   gap: 10px;
   min-width: 0;
 }
+/* Button that opens a menu: label + small down chevron */
+.menu-btn { display: inline-flex; align-items: center; gap: 6px; }
+.menu-caret {
+  width: 6px;
+  height: 6px;
+  margin-top: -3px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg);
+  opacity: 0.7;
+}
+.menu-btn[aria-expanded="true"] { background: var(--btn-hover); }
 .tool-btn.is-done { color: var(--accent); border-color: var(--accent); }
 #btn-copy { min-width: 84px; } /* room for "Copied ✓" without the header shifting */
 
@@ -170,6 +190,96 @@ body {
   flex: 1 1 auto;
   display: flex;
   min-height: 0;
+}
+
+.panes {
+  flex: 1 1 auto;
+  display: flex;
+  min-width: 0;
+}
+
+/* ---------- File sidebar (shown when a folder is open) ---------- */
+.sidebar {
+  flex: 0 0 var(--sidebar-w, 240px);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-right: 1px solid var(--border);
+  background: var(--bg-elevated);
+}
+.sidebar[hidden] { display: none; }
+.sidebar .pane-header { background: var(--bg-elevated); gap: 4px; padding-right: 6px; }
+.folder-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-actions { display: flex; flex: 0 0 auto; gap: 2px; }
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.icon-btn svg { width: 14px; height: 14px; }
+.icon-btn:hover { background: var(--btn-hover); color: var(--text); }
+.icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.file-tree {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 6px 0 12px;
+  font-size: 13px;
+}
+.file-tree ul { list-style: none; margin: 0; padding: 0; }
+.tree-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 26px;
+  padding: 0 10px 0 calc(10px + var(--depth, 0) * 14px);
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tree-item:hover { background: var(--btn-hover); }
+.tree-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.tree-item .tree-label { overflow: hidden; text-overflow: ellipsis; }
+.tree-item .tree-icon {
+  flex: 0 0 12px;
+  width: 12px;
+  height: 12px;
+  color: var(--text-muted);
+}
+.tree-dir .tree-icon { transition: transform 0.12s ease; }
+.tree-dir[aria-expanded="true"] .tree-icon { transform: rotate(90deg); }
+.tree-file .tree-ext { color: var(--text-muted); }
+.tree-file.is-unsupported { color: var(--text-muted); opacity: 0.5; cursor: default; }
+.tree-file.is-unsupported:hover { background: transparent; }
+.tree-file.is-active {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+.tree-file.is-active .tree-icon,
+.tree-file.is-active .tree-ext { color: inherit; opacity: 0.8; }
+.file-tree-empty {
+  margin: 12px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .pane {
@@ -255,6 +365,7 @@ body {
   font-size: 12px;
   cursor: pointer;
 }
+.tool-btn { white-space: nowrap; }
 .tool-btn:hover { background: var(--btn-hover); }
 .tool-btn:active { transform: translateY(1px); }
 .tool-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
@@ -295,6 +406,140 @@ body {
 }
 
 /* ---------- Preview ---------- */
+.preview[hidden], .preview-frame[hidden], .preview-none[hidden] { display: none; }
+
+/* HTML documents render like a web page: the page's own styles, on a white page in either theme. */
+.preview-frame {
+  flex: 1 1 auto;
+  width: 100%;
+  border: 0;
+  background: #fff;
+}
+
+.preview-none {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* CSV / TSV, JSON and SVG previews (rendered into #preview) */
+.preview-message { color: var(--text-muted); font-size: 13px; }
+
+.markdown-body table.data-table {
+  display: table; /* not a scroll box of its own, so the header can stick to the preview */
+  overflow: visible;
+  font-size: 13px;
+  line-height: 1.45;
+}
+/* Separate borders: Chromium mis-paints a sticky header in a border-collapse table (rows show
+   through its top edge). Each cell draws only its right and bottom border; the table the rest. */
+.markdown-body table.data-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  border-top: 1px solid var(--border);
+  border-left: 1px solid var(--border);
+}
+.markdown-body .data-table th, .markdown-body .data-table td {
+  border-width: 0 1px 1px 0;
+  white-space: pre-wrap;
+  vertical-align: top;
+}
+.data-table thead {
+  position: sticky;
+  top: -20px; /* the preview's top padding */
+  z-index: 1;
+}
+
+/* JSON tree. The bar spans the preview's padding and sticks to its top (beats
+   `.markdown-body > :first-child`, which would zero the negative margin). */
+.markdown-body > .json-toolbar {
+  position: sticky;
+  top: -20px; /* the preview's top padding */
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: -20px -32px 8px;
+  padding: 10px 32px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+.json-hint { margin-left: 6px; font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.json-tree {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.json-row {
+  display: flex;
+  align-items: baseline;
+  padding-left: calc(var(--depth, 0) * 18px);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.json-toggle {
+  display: inline-flex;
+  align-items: baseline;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.json-toggle:hover .json-chevron { color: var(--text); }
+.json-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.json-spacer, .json-chevron { flex: 0 0 16px; width: 16px; display: inline-block; }
+.json-chevron { color: var(--text-muted); }
+.json-chevron::before { content: "\25B8"; display: inline-block; transition: transform 0.12s ease; }
+.json-toggle[aria-expanded="true"] .json-chevron::before { transform: rotate(90deg); }
+.json-key { color: var(--json-key); }
+.json-index, .json-count { color: var(--text-muted); }
+.json-count { font-family: var(--font-ui); font-size: 12px; }
+.json-punct { color: var(--text-muted); }
+.json-string { color: var(--json-string); }
+.json-number { color: var(--json-number); }
+.json-boolean, .json-null { color: var(--json-literal); }
+
+.json-error {
+  padding: 12px 14px;
+  border: 1px solid #d1242f;
+  border-radius: 6px;
+  background: rgba(209, 36, 47, 0.06);
+}
+.json-error strong { color: #d1242f; }
+:root[data-theme="dark"] .json-error { border-color: #f85149; background: rgba(248, 81, 73, 0.1); }
+:root[data-theme="dark"] .json-error strong { color: #f85149; }
+.json-error p { margin: 6px 0 10px; }
+.json-error pre { margin: 0 0 10px; }
+
+.svg-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100%;
+}
+/* Checkerboard behind the image so transparent areas are visible in either theme. */
+.svg-stage img {
+  max-width: 100%;
+  max-height: calc(100vh - 160px);
+  min-width: 48px;
+  background: repeating-conic-gradient(#e6e6e6 0% 25%, #ffffff 0% 50%) 0 0 / 16px 16px;
+}
+.svg-stage .svg-error { display: none; }
+.svg-broken .svg-stage img { display: none; }
+.svg-broken .svg-stage .svg-error { display: block; }
+.preview:has(.svg-stage) { height: 100%; }
+
+.tool-btn:disabled, .toggle:disabled { opacity: 0.45; cursor: default; }
+.tool-btn:disabled:hover { background: var(--btn-bg); }
+.tool-btn:disabled:active { transform: none; }
 .preview {
   position: relative; /* makes block offsetTop relative to the scroll container */
   flex: 1 1 auto;

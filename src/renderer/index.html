@@ -23,50 +23,71 @@
   </header>
 
   <main class="workspace">
-    <section id="pane-editor" class="pane pane-editor" aria-label="Markdown source">
+    <aside id="sidebar" class="sidebar" aria-label="Folder files" hidden>
       <div class="pane-header">
-        <span class="pane-title">Markdown</span>
-        <div class="toolbar" role="toolbar" aria-label="Editing tools">
-          <button id="btn-remove-newlines" class="tool-btn" type="button"
-            title="Join line breaks inside paragraphs (applies to selection, or whole document if nothing is selected)">
-            Remove new lines
+        <span id="folder-name" class="pane-title folder-name">Files</span>
+        <div class="sidebar-actions">
+          <button id="btn-refresh-folder" class="icon-btn" type="button" title="Refresh file list" aria-label="Refresh file list">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M12 1.5v3h-3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
-          <button id="btn-format-tables" class="tool-btn" type="button"
-            title="Repair and align Markdown tables (applies to selected lines, or whole document if nothing is selected)">
-            Format tables
+          <button id="btn-close-folder" class="icon-btn" type="button" title="Close folder" aria-label="Close folder">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
           </button>
         </div>
       </div>
-      <textarea id="editor" class="editor" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off"></textarea>
-    </section>
+      <nav id="file-tree" class="file-tree" aria-label="Markdown and text files"></nav>
+    </aside>
 
-    <div id="divider" class="divider" role="separator" tabindex="0"
-      aria-orientation="vertical" aria-label="Resize panes" aria-controls="pane-editor"
-      aria-valuemin="0" aria-valuemax="100" aria-valuenow="50"
-      title="Drag to resize · double-click to reset"></div>
-
-    <section class="pane pane-preview" aria-label="Formatted preview">
-      <div class="pane-header">
-        <span class="pane-title">Preview</span>
-        <div class="pane-actions">
-          <span id="stats" class="pane-meta"></span>
-          <button id="sync-toggle" class="toggle toggle-sm" type="button" role="switch" aria-checked="true"
-            title="Keep the editor and preview scrolled to the same place">
-            <span class="toggle-label">Sync scroll</span>
-            <span class="switch" aria-hidden="true"><span class="switch-thumb"></span></span>
-          </button>
-          <button id="btn-copy" class="tool-btn" type="button"
-            title="Copy the formatted preview, ready to paste into an email or document (⇧⌘C)">
-            Copy
-          </button>
+    <div class="panes">
+      <section id="pane-editor" class="pane pane-editor" aria-label="Markdown source">
+        <div class="pane-header">
+          <span id="editor-title" class="pane-title">Markdown</span>
+          <div class="toolbar" role="toolbar" aria-label="Editing tools">
+            <!-- Opens a native menu of text tools (formatMenuTemplate in main.js) -->
+            <button id="btn-format" class="tool-btn menu-btn" type="button" aria-haspopup="menu"
+              aria-label="Help! text tools"
+              title="Text tools — they apply to the selection, or to the whole document if nothing is selected">
+              Help!<span class="menu-caret" aria-hidden="true"></span>
+            </button>
+          </div>
         </div>
-      </div>
-      <article id="preview" class="preview markdown-body"></article>
-    </section>
+        <textarea id="editor" class="editor" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off"></textarea>
+      </section>
+
+      <div id="divider" class="divider" role="separator" tabindex="0"
+        aria-orientation="vertical" aria-label="Resize panes" aria-controls="pane-editor"
+        aria-valuemin="0" aria-valuemax="100" aria-valuenow="50"
+        title="Drag to resize · double-click to reset"></div>
+
+      <section class="pane pane-preview" aria-label="Formatted preview">
+        <div class="pane-header">
+          <span id="preview-title" class="pane-title">Preview</span>
+          <div class="pane-actions">
+            <span id="stats" class="pane-meta"></span>
+            <button id="sync-toggle" class="toggle toggle-sm" type="button" role="switch" aria-checked="true"
+              title="Keep the editor and preview scrolled to the same place">
+              <span class="toggle-label">Sync scroll</span>
+              <span class="switch" aria-hidden="true"><span class="switch-thumb"></span></span>
+            </button>
+            <button id="btn-copy" class="tool-btn" type="button"
+              title="Copy the formatted preview, ready to paste into an email or document (⇧⌘C)">
+              Copy
+            </button>
+          </div>
+        </div>
+        <article id="preview" class="preview markdown-body"></article>
+        <!-- .html documents: rendered like a browser would, but sandboxed (no scripts, forms or popups). -->
+        <iframe id="preview-frame" class="preview-frame" sandbox="allow-same-origin" title="HTML preview" hidden></iframe>
+        <div id="preview-none" class="preview-none" hidden></div>
+      </section>
+    </div>
   </main>
 
   <script src="../../node_modules/marked/lib/marked.umd.js"></script>
   <script src="../../node_modules/dompurify/dist/purify.min.js"></script>
+  <script src="../file-types.js"></script>
+  <script src="../text-format.js"></script>
+  <script src="data-preview.js"></script>
   <script src="tools.js"></script>
   <script src="scroll-map.js"></script>
   <script src="export-html.js"></script>

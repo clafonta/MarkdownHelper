@@ -29,6 +29,8 @@
   /** Returns { html, text } for the given rendered preview element. */
   function buildExport(previewEl) {
     const clone = previewEl.cloneNode(true);
+    // An HTML page's body can carry these; they aren't content.
+    for (const el of clone.querySelectorAll('script, style, link, meta, template, noscript, iframe')) el.remove();
     for (const el of clone.querySelectorAll('*')) {
       for (const attr of [...el.attributes]) {
         if (attr.name.startsWith('data-') || ['class', 'id', 'style'].includes(attr.name)) {

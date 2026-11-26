@@ -1,18 +1,39 @@
 #!/bin/sh
-# mdh — open Markdown files in Markdown Helper from the terminal.
+# mdh — open files and folders in Markdown Helper from the terminal.
 #
 #   mdh                 launch / focus Markdown Helper
 #   mdh notes.md        open notes.md (created empty if it doesn't exist yet)
+#   mdh docs/           show the folder's files in the sidebar
+#   mdh .               same, for the current folder
 #
 # Install (no admin needed): ln -s "$PWD/scripts/mdh" ~/.local/bin/mdh
 APP="Markdown Helper"
 
+# Must match src/file-types.js (test/file-types.test.js checks this).
+EXTENSIONS="md markdown mdown mkd mdx txt html htm csv tsv json svg css js mjs cjs jsx ts mts cts tsx py rb go java swift sh bash zsh sql yaml yml toml ini cfg conf env xml log"
+NAMES="README LICENSE CHANGELOG .env .editorconfig Makefile makefile GNUmakefile Dockerfile .gitignore .gitattributes"
+
 [ $# -eq 0 ] && exec open -a "$APP"
 
+supported() {
+  name=$(basename -- "$1")
+  case " $NAMES " in *" $name "*) return 0 ;; esac
+  case "$name" in
+    .*.*|[!.]*.*) ext=$(printf '%s' "${name##*.}" | tr '[:upper:]' '[:lower:]') ;;
+    *) return 1 ;;
+  esac
+  case " $EXTENSIONS " in *" $ext "*) return 0 ;; esac
+  return 1
+}
+
 for f in "$@"; do
-  if [ -d "$f" ]; then
-    echo "mdh: $f is a directory" >&2; exit 1
+  [ -d "$f" ] && continue
+  if ! supported "$f"; then
+    echo "mdh: $f: Markdown Helper can't open this type of file" >&2
+    exit 1
   fi
+done
+for f in "$@"; do
   [ -e "$f" ] || : > "$f" || exit 1
 done
 

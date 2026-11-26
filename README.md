@@ -1,6 +1,7 @@
 # Markdown Helper
 
-A lightweight two-pane Markdown editor for macOS, built with Electron.
+A lightweight two-pane Markdown editor for macOS, built with Electron. It also edits plain text,
+HTML, CSV/TSV, JSON, SVG and common code and config files.
 
 ## Run
 
@@ -15,7 +16,9 @@ icon. It runs automatically after `npm install` and before `npm start`.
 
 ## Layout
 
-- `src/main.js` – Electron main process (window, theme sync, external links)
+- `src/main.js` – Electron main process (window, menus, file I/O, theme sync, external links)
+- `src/file-types.js` – which extensions can be opened and how each kind is previewed
+- `src/folder-scan.js` – builds the sidebar's file tree for an opened folder
 - `src/preload.js` – minimal bridge exposed to the UI
 - `src/renderer/` – UI: `index.html`, `styles.css`, `renderer.js`
 
@@ -27,19 +30,95 @@ Markdown is rendered with [marked](https://github.com/markedjs/marked) and sanit
 | --------------- | -------- |
 | Cmd + N         | New      |
 | Cmd + O         | Open     |
+| Cmd + Shift + O | Open Folder |
 | Cmd + S         | Save     |
 | Cmd + Shift + S | Save As  |
 
 You can also drag a file onto the window to open it. Unsaved changes are flagged in the header,
 and you're asked to save before closing, quitting, or replacing the document.
 
+### Folders
+
+Open a folder (File → Open Folder…, drag a folder onto the window, or `mdh somefolder` from the
+terminal) to get a **file sidebar** on the left listing everything in the folder, including
+subfolders. Click a file to open it in the editor. Files Markdown Helper can't open are shown
+greyed out; hidden files and `node_modules` are left out. The list refreshes when you
+switch back to the app or save a file into the folder (or click ↻), and × closes the sidebar.
+Arrow keys move through the list; Left/Right collapse and expand folders.
+
+### Command line
+
+`scripts/mdh` opens files and folders from the terminal. Install it without admin rights:
+
+```sh
+mkdir -p ~/.local/bin && ln -s "$PWD/scripts/mdh" ~/.local/bin/mdh
+```
+
+```sh
+mdh                 # launch / focus Markdown Helper
+mdh notes.md        # open notes.md (created empty if it doesn't exist; also .txt/.html/.css)
+mdh docs            # open the docs folder in the file sidebar
+mdh .               # same, for the current folder
+```
+
+### File types
+
+| Files | Editor | Preview |
+| --- | --- | --- |
+| `.md` (also `.markdown`, `.mdown`, `.mkd`, `.mdx`) | ✓ | Rendered Markdown |
+| `.txt`, `README`, `LICENSE`, `CHANGELOG` | ✓ | Rendered as Markdown |
+| `.html`, `.htm` | ✓ | The page itself, as a browser shows it. Scripts don't run; stylesheets and images next to the file load. Links open in your browser. |
+| `.csv`, `.tsv` | ✓ | A table (first row as the header), with row and column counts. Copy pastes it as a real table. |
+| `.json` | ✓ | A collapsible tree (see below); if it's invalid, the line and column of the problem (**Show in editor** jumps there) |
+| `.svg` | ✓ | The image |
+| Code and config: `.css`, `.js`, `.mjs`, `.cjs`, `.jsx`, `.ts`, `.tsx`, `.py`, `.rb`, `.go`, `.java`, `.swift`, `.sh`, `.bash`, `.zsh`, `.sql`, `.yaml`, `.yml`, `.toml`, `.ini`, `.cfg`, `.conf`, `.env`, `.xml`, `.log`, `Makefile`, `Dockerfile`, `.gitignore`, `.gitattributes`, `.editorconfig` | ✓ | None |
+
+Other files (images, PDFs, …) can't be opened, and neither can files over 20 MB. The Markdown
+tools below only apply to Markdown and text files.
+
+- **JSON tree:** click an arrow to open or close one object/array; **Option-click** opens or closes
+  it and everything inside it; **Expand all** / **Collapse all** do the whole file. Closed items
+  show a count ("12 items", "3 keys"). What's open is kept while you edit. Values are shown exactly
+  as written (big numbers aren't rounded). Very large files start with two levels open. **Copy**
+  copies the JSON text (pretty-printed), not the tree.
+- **Tab** inserts two spaces, or a real tab in Makefiles, Go and TSV files and in files that are
+  already indented with tabs.
+- **Line endings are kept:** a file with Windows (CRLF) line endings is saved with CRLF again.
+
 ## Tools
 
-- **Remove new lines** – joins hard-wrapped lines inside each paragraph. Tables, lists, code,
-  headings and HTML are left untouched; quoted paragraphs keep a single `>`.
-- **Format tables** – repairs tables whose rows were merged onto one line and aligns every column.
+The **Help!** menu in the editor header:
 
-Both apply to the selection, or to the whole document when nothing is selected. Cmd+Z undoes them.
+- **Clean Up Pasted Text** – fixes the usual mess from PDFs, Word and e-mail:
+  - rejoins words split across lines (`exam-` / `ple` → `example`); note that a real hyphenated
+    word that happens to break at a line end (`well-` / `known`) is joined too
+  - turns `•`, `◦`, `▪`, `–` … bullets into Markdown list items
+  - replaces no-break and thin spaces with normal spaces and removes invisible characters
+  - collapses runs of spaces inside text, removes trailing spaces (keeping a two-space Markdown
+    line break) and squeezes multiple blank lines into one
+
+  Code and tables are left alone.
+- **Remove New Lines** – joins hard-wrapped lines inside each paragraph. Tables, lists, code,
+  headings and HTML are left untouched; quoted paragraphs keep a single `>`.
+- **Format Tables** – repairs tables whose rows were merged onto one line and aligns every column.
+- **Convert to Table** – turns rows pasted from a spreadsheet, a CSV or a PDF (separated by tabs,
+  commas, semicolons or runs of spaces) into an aligned Markdown table, first row as the header.
+  With nothing selected it converts the block of lines around the cursor.
+- **UPPERCASE** / **lowercase** / **Title Case** / **Sentence case** – change the case of the text.
+  - Title Case keeps short words lowercase (*a, of, the, and, from, with…*) except at the start,
+    the end, or after a colon.
+  - Sentence case capitalizes the start of each sentence, including across wrapped lines, and
+    fixes a lone "i". It can't recognize names, so "Ada Lovelace" becomes "Ada lovelace".
+  - Both keep acronyms (NASA) and brand casing (iPhone). Three or more capitalized words in a
+    row, or an all-caps line, count as shouting and are re-cased.
+  - In Markdown and text files, things whose case matters are left alone: code (inline and
+    blocks), link and image URLs, bare URLs and e-mail addresses, HTML tags, entities like
+    `&nbsp;`, reference link definitions, and front matter at the top. In other files (code,
+    JSON, CSV, …) every word is changed.
+
+All of them apply to the selection, or to the whole document when nothing is selected. Cmd+Z
+undoes them. Clean Up, Remove New Lines, Format Tables and Convert to Table are only available
+for Markdown and text files.
 
 In the preview header:
 
