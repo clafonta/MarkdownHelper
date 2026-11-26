@@ -14,6 +14,8 @@ test('maps extensions to their preview kind, case-insensitively', () => {
   assert.equal(fileKind('/a/data.tsv'), 'tsv');
   assert.equal(fileKind('/a/package.json'), 'json');
   assert.equal(fileKind('/a/logo.svg'), 'svg');
+  assert.equal(fileKind('/a/flow.mmd'), 'mermaid');
+  assert.equal(fileKind('/a/flow.MERMAID'), 'mermaid');
   for (const p of ['/a/site.css', '/a/app.js', '/a/x.tsx', '/a/run.py', '/a/conf.yml', '/a/app.log']) {
     assert.equal(fileKind(p), 'code', p);
   }

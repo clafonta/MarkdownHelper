@@ -23,6 +23,7 @@ icon. It runs automatically after `npm install` and before `npm start`.
 - `src/renderer/` – UI: `index.html`, `styles.css`, `renderer.js`
 
 Markdown is rendered with [marked](https://github.com/markedjs/marked) and sanitized with [DOMPurify](https://github.com/cure53/DOMPurify).
+Diagrams are drawn with [Mermaid](https://mermaid.js.org/).
 
 ## Files
 
@@ -71,6 +72,7 @@ mdh .               # same, for the current folder
 | `.csv`, `.tsv` | ✓ | A table (first row as the header), with row and column counts. Copy pastes it as a real table. |
 | `.json` | ✓ | A collapsible tree (see below); if it's invalid, the line and column of the problem (**Show in editor** jumps there) |
 | `.svg` | ✓ | The image |
+| `.mmd`, `.mermaid` | ✓ | The diagram |
 | Code and config: `.css`, `.js`, `.mjs`, `.cjs`, `.jsx`, `.ts`, `.tsx`, `.py`, `.rb`, `.go`, `.java`, `.swift`, `.sh`, `.bash`, `.zsh`, `.sql`, `.yaml`, `.yml`, `.toml`, `.ini`, `.cfg`, `.conf`, `.env`, `.xml`, `.log`, `Makefile`, `Dockerfile`, `.gitignore`, `.gitattributes`, `.editorconfig` | ✓ | None |
 
 Other files (images, PDFs, …) can't be opened, and neither can files over 20 MB. The Markdown
@@ -84,6 +86,26 @@ tools below only apply to Markdown and text files.
 - **Tab** inserts two spaces, or a real tab in Makefiles, Go and TSV files and in files that are
   already indented with tabs.
 - **Line endings are kept:** a file with Windows (CRLF) line endings is saved with CRLF again.
+
+### Diagrams
+
+Fenced code blocks marked `mermaid` are drawn as diagrams in the preview: flowcharts, sequence,
+class and state diagrams, pie charts, mind maps, Gantt charts and the rest of what
+[Mermaid](https://mermaid.js.org/intro/) supports.
+
+````markdown
+```mermaid
+flowchart LR
+  A[Paste text] --> B[Clean Up] --> C[Copy]
+```
+````
+
+- A diagram with a mistake shows Mermaid's error message instead of the drawing.
+- While you edit a diagram, the previous drawing stays (faded) until you pause typing.
+- Diagrams follow dark mode. **Copy** puts them on the clipboard as light-theme PNG images on
+  white, so they paste into Google Docs, Word and e-mail.
+- Diagrams are shown as images, so nothing in a diagram can run code; links inside diagrams
+  aren't clickable.
 
 ## Tools
 

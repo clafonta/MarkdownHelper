@@ -32,6 +32,11 @@
     // An HTML page's body can carry these; they aren't content.
     for (const el of clone.querySelectorAll('script, style, link, meta, template, noscript, iframe')) el.remove();
     for (const el of clone.querySelectorAll('*')) {
+      // Images that need a different form on the clipboard (Mermaid diagrams → PNG).
+      if (el.tagName === 'IMG' && el.dataset.exportSrc) {
+        el.setAttribute('src', el.dataset.exportSrc);
+        if (el.dataset.exportWidth) el.setAttribute('width', el.dataset.exportWidth);
+      }
       for (const attr of [...el.attributes]) {
         if (attr.name.startsWith('data-') || ['class', 'id', 'style'].includes(attr.name)) {
           el.removeAttribute(attr.name);

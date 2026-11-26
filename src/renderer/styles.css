@@ -11,6 +11,10 @@
   --btn-bg: #ffffff;
   --btn-hover: #eef0f3;
   --switch-off: #c9ced6;
+  --editor-header-bg: #f8efcc; /* muted yellow: tells the editor apart from the preview */
+  --editor-header-border: #e9dcaa;
+  --preview-header-bg: #e2effa; /* muted sky blue for the preview */
+  --preview-header-border: #c5dcef;
   --json-key: #0550ae;
   --json-string: #0a7d32;
   --json-number: #953800;
@@ -35,6 +39,10 @@
   --btn-bg: #2b2e33;
   --btn-hover: #34373d;
   --switch-off: #4a4e56;
+  --editor-header-bg: #38331f;
+  --editor-header-border: #4a4329;
+  --preview-header-bg: #1e3040;
+  --preview-header-border: #2b4256;
   --json-key: #79c0ff;
   --json-string: #7ee787;
   --json-number: #ffa657;
@@ -334,6 +342,14 @@ body {
   border-bottom: 1px solid var(--border);
   background: var(--bg);
 }
+.pane-editor .pane-header {
+  background: var(--editor-header-bg);
+  border-bottom-color: var(--editor-header-border);
+}
+.pane-preview .pane-header {
+  background: var(--preview-header-bg);
+  border-bottom-color: var(--preview-header-border);
+}
 
 .pane-title {
   font-size: 11px;
@@ -506,6 +522,12 @@ body {
 .json-string { color: var(--json-string); }
 .json-number { color: var(--json-number); }
 .json-boolean, .json-null { color: var(--json-literal); }
+
+/* Mermaid diagrams: an <img> of the drawing, centered, never wider than the preview. */
+.mermaid-diagram { margin: 0 0 1em; text-align: center; }
+.mermaid-diagram img { max-width: 100%; height: auto; }
+.mermaid-diagram.is-stale { opacity: 0.45; transition: opacity 0.15s ease; } /* redrawing after an edit */
+.mermaid-error { text-align: left; }
 
 .json-error {
   padding: 12px 14px;

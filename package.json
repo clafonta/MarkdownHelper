@@ -5,13 +5,16 @@
   "main": "src/main.js",
   "private": true,
   "scripts": {
-    "prestart": "node scripts/brand-dev-electron.js",
+    "prestart": "node scripts/vendor.js && node scripts/brand-dev-electron.js",
     "start": "electron .",
-    "postinstall": "node scripts/brand-dev-electron.js",
+    "postinstall": "node scripts/vendor.js && node scripts/brand-dev-electron.js",
     "test": "node --test test/",
     "assets": "electron scripts/make-assets.js",
+    "predist": "node scripts/vendor.js",
     "dist": "electron-builder --mac --arm64 --x64",
+    "predist:arm64": "node scripts/vendor.js",
     "dist:arm64": "electron-builder --mac --arm64",
+    "predist:x64": "node scripts/vendor.js",
     "dist:x64": "electron-builder --mac --x64"
   },
   "dependencies": {
@@ -20,7 +23,8 @@
   },
   "devDependencies": {
     "electron": "^45.5.0",
-    "electron-builder": "^26.18.0"
+    "electron-builder": "^26.18.0",
+    "mermaid": "^12.3.0"
   },
   "productName": "Markdown Helper",
   "author": "Chad Lafontaine",

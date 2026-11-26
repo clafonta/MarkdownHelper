@@ -26,6 +26,7 @@
       case 'tsv': renderTable(source, '\t'); break;
       case 'json': renderJson(source); break;
       case 'svg': renderSvg(source); break;
+      case 'mermaid': renderMermaidFile(source); break;
       default: renderMarkdown(source);
     }
     invalidateScrollMap();
@@ -41,8 +42,15 @@
     const tokens = marked.lexer(source);
     const startLines = tokenStartLines(tokens);
     const fragment = document.createDocumentFragment();
+    const previous = [...preview.querySelectorAll('.mermaid-diagram')];
+    let diagrams = 0;
     tokens.forEach((token, i) => {
       if (token.type === 'space') return;
+      if (token.type === 'code' && /^mermaid\b/i.test((token.lang || '').trim())) {
+        fragment.append(mermaidBlock(token.text, startLines[i], previous[diagrams]));
+        diagrams += 1;
+        return;
+      }
       const single = [token];
       single.links = tokens.links; // reference-style links are defined document-wide
       const html = DOMPurify.sanitize(marked.parser(single), { RETURN_DOM_FRAGMENT: true });
@@ -50,6 +58,92 @@
       fragment.append(html);
     });
     preview.replaceChildren(fragment);
+    if (diagrams) drawPendingDiagrams();
+  }
+
+  // ---------- Mermaid diagrams (```mermaid blocks, and .mmd / .mermaid files) ----------
+  // Each diagram is an <img> of the SVG mermaid draws (see mermaid-render.js). Drawing is async,
+  // so a block first shows the cached drawing, or the previous drawing at the same position
+  // (faded) while the new one is made, then gets filled in.
+  const mermaidSources = new WeakMap(); // .mermaid-diagram element → its source
+  const previewTheme = () => (document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light');
+
+  function fillDiagram(block, result) {
+    block.classList.remove('is-stale');
+    delete block.dataset.pending;
+    if (result.error) {
+      const box = make('div', 'json-error mermaid-error');
+      box.append(make('strong', '', 'Mermaid diagram error'));
+      const pre = make('pre');
+      pre.append(make('code', '', result.error));
+      box.append(pre);
+      block.replaceChildren(box);
+      return;
+    }
+    const img = new Image();
+    img.alt = 'Diagram';
+    img.style.width = `${result.width}px`;
+    img.src = window.MermaidRender.svgUrl(result.svg);
+    block.replaceChildren(img);
+  }
+
+  function mermaidBlock(source, line, previous) {
+    const block = make('div', 'mermaid-diagram');
+    block.dataset.line = String(line);
+    mermaidSources.set(block, source);
+    const done = window.MermaidRender.cached(source, previewTheme());
+    if (done) {
+      fillDiagram(block, done);
+    } else {
+      block.dataset.pending = '1';
+      if (previous && !previous.querySelector('.mermaid-error')) {
+        block.append(...[...previous.childNodes].map((n) => n.cloneNode(true)));
+        block.classList.add('is-stale');
+      } else {
+        block.append(make('p', 'preview-message', 'Drawing diagram…'));
+      }
+    }
+    return block;
+  }
+
+  let diagramTimer = 0;
+  function drawPendingDiagrams() {
+    clearTimeout(diagramTimer);
+    // Redraw right away the first time; while typing, wait for a pause.
+    const typing = preview.querySelector('.mermaid-diagram.is-stale');
+    diagramTimer = setTimeout(async () => {
+      const theme = previewTheme();
+      for (const block of preview.querySelectorAll('.mermaid-diagram[data-pending]')) {
+        const result = await window.MermaidRender.render(mermaidSources.get(block), theme);
+        if (!block.isConnected) continue; // the preview was re-rendered meanwhile
+        fillDiagram(block, result);
+        invalidateScrollMap();
+      }
+      if (syncEnabled) syncScroll(editor);
+    }, typing ? 300 : 0);
+  }
+
+  function renderMermaidFile(source) {
+    if (!source.trim()) { previewMessage('Nothing to show yet.'); return; }
+    const previous = preview.querySelector('.mermaid-diagram');
+    preview.replaceChildren(mermaidBlock(source, 0, previous));
+    drawPendingDiagrams();
+  }
+
+  /** Copy: diagrams go to the clipboard as light-theme PNGs (documents and mail don't take SVG). */
+  async function prepareDiagramsForCopy() {
+    for (const block of preview.querySelectorAll('.mermaid-diagram')) {
+      const img = block.querySelector('img');
+      if (!img) continue;
+      const result = await window.MermaidRender.render(mermaidSources.get(block), 'light');
+      if (result.error) continue;
+      try {
+        img.dataset.exportSrc = await window.MermaidRender.toPng(result);
+        img.dataset.exportWidth = String(result.width);
+      } catch (err) {
+        console.error(err);
+      }
+    }
   }
 
   const make = (tag, className, text) => {
@@ -320,7 +414,7 @@
     markdownTools = kind === 'markdown' || kind === 'text';
     caseMode = markdownTools ? 'markdown' : 'literal';
     // A single image has nothing to scroll in step with, and an image or code can't be pasted as text.
-    syncToggle.disabled = kind === 'code' || kind === 'svg';
+    syncToggle.disabled = kind === 'code' || kind === 'svg' || kind === 'mermaid';
     copyBtn.disabled = kind === 'code' || kind === 'svg';
     clearTimeout(copyResetTimer);
     copyBtn.textContent = 'Copy';
@@ -573,6 +667,7 @@
       source.append(pre);
     }
     if (!source) return;
+    if (source === preview) await prepareDiagramsForCopy();
     const { html, text } = window.ExportHtml.buildExport(source);
     let ok = false;
     try { ok = await bridge.copyRich(html, text); } catch (err) { console.error(err); }
@@ -604,6 +699,7 @@
   function applyTheme(mode, persist) {
     const dark = mode === 'dark';
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+    if (preview.querySelector('.mermaid-diagram')) scheduleRender(); // redraw in the new theme
     themeToggle.setAttribute('aria-checked', String(dark));
     if (bridge.setTheme) bridge.setTheme(dark ? 'dark' : 'light');
     if (persist) {
@@ -1029,21 +1125,34 @@
   window.addEventListener('focus', () => { if (folder) refreshFolder(); });
 
   // ---------- Starter content ----------
-  const welcome = `# Welcome to Markdown Helper
+  const welcome = `# Write Markdown. Paste it anywhere.
 
-Type **Markdown** on the left and see it rendered on the right.
+Type on the left, see the result on the right, then **Copy** it into Docs, Word or email.
 
-## Features in this draft
+## Features
 
 - Live preview with GitHub-flavored Markdown
+- **Mermaid diagrams** (see below)
 - Dark mode toggle (top right)
-- *Remove new lines* tool in the editor header
+- Text tools in the **Help!** menu above the editor
 
-> Tip: select some text before clicking **Remove new lines**
-> to only join the lines in your selection.
+> Tip: select some text before using a **Help!** tool
+> to change only your selection.
 
 \`\`\`js
 console.log('Hello, Markdown!');
+\`\`\`
+
+## Mermaid diagrams
+
+Write a code block marked \`mermaid\` and it's drawn as a diagram:
+flowcharts, sequence diagrams, pie charts, mind maps and more.
+\`.mmd\` and \`.mermaid\` files open as diagrams too.
+
+\`\`\`mermaid
+flowchart LR
+  A[Write Markdown] --> B[Preview]
+  B --> C[Copy into Docs or email]
 \`\`\`
 
 | Shortcut | Action |

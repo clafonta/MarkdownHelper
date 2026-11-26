@@ -12,7 +12,7 @@ dark mode toggle (right).
 
 | Command | What it does |
 | --- | --- |
-| `npm start` | Run in dev (prestart re-brands the dev Electron.app, see below) |
+| `npm start` | Run in dev (prestart copies vendor bundles and re-brands the dev Electron.app, see below) |
 | `npm test` | Unit tests (`node --test test/`) for the pure modules |
 | `npm run assets` | Re-render `build/icon.png`, `build/icon.icns`, `build/background*.png` from the SVGs |
 | `npm run dist` | DMG + ZIP for arm64 and x64 into `dist/` (`dist:arm64`, `dist:x64` for one arch) |
@@ -37,6 +37,8 @@ dark mode toggle (right).
   - `tools.js` – pure text transforms: `removeNewlines`, `formatTables` (window.MarkdownTools)
   - `scroll-map.js` – pure sync-scroll math (window.ScrollMap)
   - `data-preview.js` – pure CSV/TSV parsing and JSON pretty-print/error location (window.DataPreview)
+  - `mermaid-render.js` – Mermaid: lazy-loads `../vendor/mermaid.min.js`, renders one diagram at a
+    time, caches by theme + source, SVG→PNG for Copy (window.MermaidRender; DOM-dependent)
   - `export-html.js` – clean semantic HTML for "Copy" (no fonts/sizes/colors) (window.ExportHtml; DOM-dependent)
   - `renderer.js` – UI wiring: rendering, document state, toolbar, sync scroll, theme, folder sidebar
 - `build/` – icon + DMG background SVG sources **and** their generated PNG/ICNS (committed on
@@ -44,6 +46,9 @@ dark mode toggle (right).
 - `scripts/make-assets.js` – rasterizes SVGs with Electron's Chromium + `iconutil`.
 - `scripts/brand-dev-electron.js` – renames dev `node_modules/electron/dist/Electron.app` to
   "Markdown Helper" + our icon and re-signs ad hoc (otherwise menu bar says "Electron").
+- `scripts/vendor.js` – copies `node_modules/mermaid/dist/mermaid.min.js` (+ license) into
+  `src/vendor/` (git-ignored) on postinstall / prestart / predist. mermaid is a **devDependency on
+  purpose**: as a dependency electron-builder would pack its ~200 MB dependency tree into the app.
 - `scripts/mdh` – shell launcher (`open -a "Markdown Helper" …`); creates missing files, passes
   folders through (the app shows them in the sidebar).
 
@@ -80,6 +85,11 @@ dark mode toggle (right).
   `open`/`closed` sets plus a default `depth`, so it survives re-renders while typing; reset per
   document in `loadDocument`. Closed nodes' children aren't rendered. Each row carries `data-line`
   (from `parseJsonTree`) for sync scroll. Copy for JSON exports the pretty text, not the widget.
+- Mermaid: ```mermaid blocks (and `.mmd`/`.mermaid` files) become `.mermaid-diagram` blocks with
+  `data-line`, filled asynchronously with an `<img>` of the SVG. Rendered as images, not inline
+  SVG, so they need no DOMPurify pass: an image can't run scripts or leak styles. Config is
+  `securityLevel: 'strict'` + `htmlLabels: false` (no `<foreignObject>`, otherwise the canvas used
+  for Copy's PNG gets tainted). Theme changes re-render; Copy always exports the light theme.
 - Sync scroll anchors are any `#preview [data-line]` element (Markdown blocks, CSV/TSV rows),
   measured with getBoundingClientRect; without anchors (HTML, JSON) it's proportional.
 - Line endings: main normalizes to `\n` on read and returns `eol`; the renderer passes `doc.eol`

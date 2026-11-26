@@ -1,6 +1,9 @@
 # Dependencies (restored by `npm install`)
 node_modules/
 
+# Single-file browser bundles copied from node_modules by scripts/vendor.js (mermaid)
+src/vendor/
+
 # Build output from `npm run dist` (.app, .dmg, .zip, .blockmap, builder configs)
 dist/
 out/

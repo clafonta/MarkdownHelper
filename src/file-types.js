@@ -10,6 +10,7 @@
  *   csv, tsv – a table
  *   json     – pretty-printed, or where it's invalid
  *   svg      – the image
+ *   mermaid  – the diagram (```mermaid blocks in Markdown are drawn too)
  *   code     – editable, no preview
  * `tabs: true` makes the Tab key insert a real tab (the format needs them).
  */
@@ -23,6 +24,7 @@
     { kind: 'tsv', label: 'TSV', ext: ['tsv'], tabs: true },
     { kind: 'json', label: 'JSON', ext: ['json'] },
     { kind: 'svg', label: 'SVG', ext: ['svg'] },
+    { kind: 'mermaid', label: 'Mermaid', ext: ['mmd', 'mermaid'] },
     { kind: 'code', label: 'CSS', ext: ['css'] },
     { kind: 'code', label: 'JavaScript', ext: ['js', 'mjs', 'cjs', 'jsx'] },
     { kind: 'code', label: 'TypeScript', ext: ['ts', 'mts', 'cts', 'tsx'] },
@@ -82,6 +84,7 @@
     { name: 'HTML', extensions: exts('HTML') },
     { name: 'Data (CSV, TSV, JSON)', extensions: exts('CSV', 'TSV', 'JSON') },
     { name: 'SVG Image', extensions: exts('SVG') },
+    { name: 'Mermaid Diagram', extensions: exts('Mermaid') },
     { name: 'All Files', extensions: ['*'] },
   ];
 
