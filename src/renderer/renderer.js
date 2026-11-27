@@ -2536,9 +2536,21 @@ flowcharts, sequence diagrams, pie charts, mind maps and more.
 \`.mmd\` and \`.mermaid\` files open as diagrams too.
 
 \`\`\`mermaid
-flowchart LR
-  A[Write Markdown] --> B[Preview]
-  B --> C[Copy into Docs or email]
+flowchart TD
+  subgraph write [Write]
+    direction LR
+    paste([Paste from a PDF]) --> clean[Clean Up Pasted Text]
+  end
+  write --> edit[Edit in either pane]
+  edit --> check{Looks right?}
+  check -- Not yet --> edit
+  check -- Yes --> copy[Copy]
+  copy --> anywhere
+  subgraph anywhere [Paste anywhere]
+    docs(Google Docs)
+    word(Word)
+    mail(Email)
+  end
 \`\`\`
 
 | Shortcut | Action |
