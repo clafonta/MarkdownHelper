@@ -103,6 +103,14 @@ dark mode toggle (right).
   functions (`toggleInline`, `setBlockType`, `tableEdit`, + `inlineStylesAt`/`blockTypeAt`/
   `tableAt` for state) and `applyEdit` → `replaceRange`. New tool = transform in tools.js + test,
   a menu item, and a `FORMAT_COMMANDS` entry.
+- CSV / TSV preview: every cell is `contenteditable="plaintext-only"` (the preview itself isn't
+  editable); `csvCellEdited` → `DataPreview.editDelimited` (data-preview.js: rewrites only that
+  row; `parseDelimited` gives each row's `start`/`end` and fields' `raws`). Row/column commands
+  (`dataTableCommand`, right-click menu `state.dataTable`) rewrite the table and re-render.
+  Conversions: `delimitedToMarkdown` / `markdownTableToCsv` (tools.js); preview tables are
+  exported from the DOM (`tableElementToCsv`). `file:export` (main) saves a converted copy.
+- Finder "Open With": `build.fileAssociations` in package.json (rank Alternate) for the document
+  types; only takes effect in packaged builds.
 - Find & Replace: Edit ▸ Find menu items (Cmd+F / ⌥⌘F / ⌘G / ⇧⌘G) send `menu:find` →
   `openFind` / `findNext` in renderer.js. Matches are painted on `.editor-find` (an overlay laid
   out like `.editor-mirror`, since the textarea doesn't paint its selection while the find field

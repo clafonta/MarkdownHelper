@@ -910,6 +910,39 @@
     return { text: lines.join('\n'), start, end: start + 'Column 1'.length };
   }
 
+  // ---------- CSV / TSV ↔ Markdown tables ----------
+
+  /** A CSV / TSV (first row = header) as an aligned Markdown table ('' if it's empty). */
+  function delimitedToMarkdown(text, delimiter) {
+    const rows = parseDelimited(text, delimiter);
+    if (!rows.length) return '';
+    const columns = Math.max(...rows.map((r) => r.cells.length));
+    const cell = (c) => (c ?? '').trim().replace(/\|/g, '\\|').replace(/\r?\n/g, '<br>');
+    const line = (r) => `| ${Array.from({ length: columns }, (_, k) => cell(r.cells[k])).join(' | ')} |`;
+    return formatTables([line(rows[0]), `| ${Array(columns).fill('---').join(' | ')} |`, ...rows.slice(1).map(line)].join('\n'));
+  }
+
+  /** A Markdown table cell's plain text: no emphasis / code / link markup, escapes undone. */
+  function markdownCellText(cell) {
+    return cell
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1') // ![alt](src) → alt
+      .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1') // [text](url) → text
+      .replace(/(`+)(.+?)\1/g, '$2')
+      .replace(/(\*\*|__)(?=\S)(.+?)(?<=\S)\1/g, '$2')
+      .replace(/(?<![\w*])([*_])(?=\S)(.+?)(?<=\S)\1(?![\w*])/g, '$2')
+      .replace(/~~(?=\S)(.+?)(?<=\S)~~/g, '$1')
+      .replace(/\\([\\`*_{}[\]()#+\-.!|~<>])/g, '$1');
+  }
+
+  /** The Markdown table around `pos` as CSV text (plain cell text), or null if not in a table. */
+  function markdownTableToCsv(text, pos) {
+    const t = tableAt(text, pos);
+    if (!t) return null;
+    const field = (value) => (/[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value);
+    return `${t.rows.map((r) => r.map((c) => field(markdownCellText(c))).join(',')).join('\n')}\n`;
+  }
+
   // ---------- Typing in lists: Enter continues a list, Tab / Shift+Tab nest ----------
 
   // Optional quote markers, indentation, a list marker, spaces, an optional task box.
@@ -1113,6 +1146,7 @@
   const api = {
     removeNewlines, formatTables, changeCase, cleanUpText, toTable, toggleEmphasis, toggleInline,
     inlineStylesAt, blockTypeAt, setBlockType, tableAt, tableEdit, insertTable, continueList, indentLines,
+    delimitedToMarkdown, markdownTableToCsv,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.MarkdownTools = api;

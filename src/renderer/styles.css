@@ -753,6 +753,8 @@ body {
 .markdown-body table { border-collapse: collapse; display: block; overflow: auto; }
 .markdown-body th, .markdown-body td { padding: 6px 12px; border: 1px solid var(--border); }
 .markdown-body th { background: var(--bg-elevated); font-weight: 600; }
+/* CSV / TSV cells are edited in place: the focused one gets the accent outline. */
+.data-table [contenteditable]:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
 /* An empty cell (e.g. a row just inserted) keeps a full line's height. */
 .markdown-body th:empty::before, .markdown-body td:empty::before { content: '\200b'; }
 .markdown-body hr { border: 0; height: 1px; background: var(--border); margin: 1.5em 0; }

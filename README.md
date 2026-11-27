@@ -92,7 +92,7 @@ mdh .               # same, for the current folder
 | `.md` (also `.markdown`, `.mdown`, `.mkd`, `.mdx`) | ✓ | Rendered Markdown |
 | `.txt`, `README`, `LICENSE`, `CHANGELOG` | ✓ | Rendered as Markdown |
 | `.html`, `.htm` | ✓ | The page itself, as a browser shows it. Scripts don't run; stylesheets and images next to the file load. Links open in your browser. |
-| `.csv`, `.tsv` | ✓ | A table (first row as the header), with row and column counts. Copy pastes it as a real table. |
+| `.csv`, `.tsv` | ✓ | An editable table (first row as the header), with row and column counts. Copy pastes it as a real table. See below. |
 | `.json` | ✓ | A collapsible tree (see below); if it's invalid, the line and column of the problem (**Show in editor** jumps there) |
 | `.svg` | ✓ | The image |
 | `.mmd`, `.mermaid` | ✓ | The diagram |
@@ -101,6 +101,13 @@ mdh .               # same, for the current folder
 Other files (images, PDFs, …) can't be opened, and neither can files over 20 MB. The Markdown
 tools below only apply to Markdown and text files.
 
+- **CSV / TSV tables:** click a cell in the preview and type; the CSV text updates as you go
+  (only that row is rewritten, quoted where needed). **Tab** / **Shift+Tab** move across,
+  **Enter** / **Shift+Enter** down / up; Tab in the last cell adds a row. Right-click a cell to
+  insert or delete rows and columns, or to **Copy as Markdown Table** / **Save as Markdown…**
+  (also in the Edit menu). The other way round, a Markdown table's right-click **Table** menu
+  has **Copy Table as CSV** / **Save Table as CSV…** (cell text without Markdown markup), for
+  Excel, Numbers or Google Sheets.
 - **JSON tree:** click an arrow to open or close one object/array; **Option-click** opens or closes
   it and everything inside it; **Expand all** / **Collapse all** do the whole file. Closed items
   show a count ("12 items", "3 keys"). What's open is kept while you edit. Values are shown exactly
@@ -256,6 +263,9 @@ Output in `dist/`, per architecture:
 
 - `Markdown-Helper-<version>-<arch>.dmg` – drag-to-install disk image
 - `Markdown-Helper-<version>-<arch>.zip` – the bare `.app`, for unzipping anywhere
+
+The app registers itself for Markdown, CSV, TSV, text, JSON, HTML, SVG and Mermaid files, so
+it's listed under Finder's **Open With** for them (and can be made the default app there).
 
 Pick `arm64` for Apple silicon (M-series) Macs and `x64` for Intel Macs
 ( → About This Mac shows "Chip: Apple M…" or "Processor: Intel").

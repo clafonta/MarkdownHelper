@@ -425,6 +425,9 @@ function formattingItems(item, state) {
       item('Delete Row', table.header ? 'the next row becomes the header' : '', 'table-delete-row'),
       item('Delete Column', '', 'table-delete-col'),
       item('Delete Table', '', 'table-delete'),
+      SEPARATOR,
+      item('Copy Table as CSV', 'for Excel, Numbers, Sheets', 'table-copy-csv'),
+      item('Save Table as CSV…', '', 'table-save-csv'),
     ]
     : [item('Insert Table', '| a | b |', 'table-insert')];
   const tableMenu = { label: 'Table', submenu: tableItems, enabled: tableItems[0].enabled };
@@ -441,6 +444,7 @@ function formatMenuTemplate(send, state, { context = false } = {}) {
   const item = (...args) => menuItem(send, true, ...args);
   return [
     ...(markdownTools ? [...formattingItems(item, state), SEPARATOR] : []),
+    ...(state.dataTable ? [...convertItems(item), SEPARATOR] : []),
     menuHeading('Clean Up'),
     { label: 'Clean Up Pasted Text', click: () => send('clean-up'), ...markdownOnly },
     { label: 'Remove New Lines', click: () => send('remove-newlines'), ...markdownOnly },
@@ -474,8 +478,33 @@ ipcMain.handle('format-menu:show', (event, { x, y, context, ...state } = {}) => 
   return showMenu(event, template, x, y);
 });
 
+/** A CSV / TSV document as Markdown. */
+function convertItems(item) {
+  return [
+    menuHeading('Convert'),
+    item('Copy as Markdown Table', '| a | b |', 'copy-markdown'),
+    item('Save as Markdown…', '', 'save-markdown'),
+  ];
+}
+
 function previewMenuTemplate(send, state) {
   const item = (...args) => menuItem(send, state.editable !== false, ...args);
+  if (state.dataTable) {
+    // A CSV / TSV table: its rows and columns (no text styles or alignment in a CSV).
+    return [
+      menuHeading('Table'),
+      item('Insert Row Above', '', 'table-row-above'),
+      item('Insert Row Below', '', 'table-row-below'),
+      item('Insert Column Left', '', 'table-col-left'),
+      item('Insert Column Right', '', 'table-col-right'),
+      SEPARATOR,
+      item('Delete Row', state.header ? 'the next row becomes the header' : '', 'table-delete-row'),
+      item('Delete Column', '', 'table-delete-col'),
+      SEPARATOR,
+      ...convertItems(item),
+      ...CLIPBOARD,
+    ];
+  }
   return [...formattingItems(item, state), ...CLIPBOARD];
 }
 
@@ -517,6 +546,31 @@ ipcMain.handle('folder-menu:show', (event, { x, y, target } = {}) => {
   if (!target || typeof target.path !== 'string') return null;
   const send = (action) => event.sender.send('menu:folder-action', { action, path: target.path, type: target.type });
   return showMenu(event, folderMenuTemplate(send, target), x, y);
+});
+
+// Plain text only (e.g. a table converted to CSV or Markdown).
+ipcMain.handle('clipboard:write-text', async (_event, text) => {
+  if (typeof text !== 'string') return false;
+  await clipboard.writeText(text); // (async in Electron 45)
+  return true;
+});
+
+// "Save as Markdown…" / "Save Table as CSV…": writes `content` to a file the user picks.
+// Resolves to the path, or null if cancelled.
+ipcMain.handle('file:export', async (event, { content, defaultName, defaultDir, kind }) => {
+  if (typeof content !== 'string') return null;
+  const filters = kind === 'csv'
+    ? [{ name: 'CSV', extensions: ['csv'] }]
+    : [{ name: 'Markdown', extensions: ['md', 'markdown'] }];
+  const name = typeof defaultName === 'string' && defaultName ? path.basename(defaultName) : 'Untitled';
+  const { canceled, filePath } = await dialog.showSaveDialog(BrowserWindow.fromWebContents(event.sender), {
+    defaultPath: typeof defaultDir === 'string' && defaultDir ? path.join(defaultDir, name) : name,
+    filters,
+  });
+  if (canceled || !filePath) return null;
+  await fs.writeFile(filePath, content, 'utf8');
+  app.addRecentDocument(filePath);
+  return filePath;
 });
 
 // Rich copy: HTML for mail/docs apps, plain text for everything else.

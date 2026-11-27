@@ -3,8 +3,10 @@
  */
 (function (root) {
   /**
-   * Splits delimited text into rows: [{ cells: string[], line }] where `line` is the 0-based
-   * source line the row starts on (used for synchronized scrolling).
+   * Splits delimited text into rows: [{ cells: string[], line, start, end, raws: string[] }]:
+   * `line` is the 0-based source line the row starts on (used for synchronized scrolling),
+   * `start` / `end` the row's offsets in the text (without its line break), `raws` each field as
+   * written (quotes included), so an edit can rewrite one field and keep the others as they were.
    * With `quotes` (CSV), fields may be "quoted", contain the delimiter or line breaks, and
    * escape quotes as "". TSV has no quoting, so a " is just a character there.
    * Blank lines are skipped.
@@ -17,12 +19,24 @@
     let fieldStarted = false; // a quoted empty field ("") still counts as a field
     let line = 0;
     let rowLine = 0;
+    let rowStart = 0;
+    let fieldStart = 0;
+    let raws = [];
 
-    const endField = () => { row.push(field); field = ''; fieldStarted = false; };
-    const endRow = () => {
-      endField();
-      if (!(row.length === 1 && row[0] === '')) rows.push({ cells: row, line: rowLine });
+    const endField = (at) => {
+      row.push(field);
+      raws.push(text.slice(fieldStart, at).replace(/\r$/, ''));
+      field = '';
+      fieldStarted = false;
+      fieldStart = at + 1;
+    };
+    const endRow = (at) => {
+      endField(at);
+      const end = text[at - 1] === '\r' ? at - 1 : at;
+      if (!(row.length === 1 && row[0] === '')) rows.push({ cells: row, line: rowLine, start: rowStart, end, raws });
       row = [];
+      raws = [];
+      rowStart = at + 1;
     };
 
     for (let i = 0; i < text.length; i += 1) {
@@ -38,17 +52,57 @@
         inQuotes = true;
         fieldStarted = true;
       } else if (c === delimiter) {
-        endField();
+        endField(i);
       } else if (c === '\n') {
-        endRow();
+        endRow(i);
         line += 1;
         rowLine = line;
       } else if (c !== '\r') {
         field += c;
       }
     }
-    if (field || fieldStarted || row.length) endRow();
+    if (field || fieldStarted || row.length) endRow(text.length);
     return rows;
+  }
+
+  /** One field written for a CSV (quoted when it must be) or a TSV (tabs and breaks → spaces). */
+  function formatField(value, delimiter) {
+    if (delimiter !== ',') return value.replace(/[\t\r\n]+/g, ' ');
+    return /[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+  }
+
+  /**
+   * Edits delimited text. op: { type: 'set', row, col, value } | { type: 'insert-row', at } |
+   * { type: 'delete-row', row } | { type: 'insert-col', at } | { type: 'delete-col', col }
+   * (rows count from 0 = the header). Fields that aren't changed keep exactly how they were
+   * written. 'set' rewrites just that row; the others rewrite the rows (one per line).
+   */
+  function editDelimited(text, delimiter, op) {
+    const rows = parseDelimited(text, delimiter);
+    const columns = Math.max(1, ...rows.map((r) => r.cells.length));
+    const pad = (cells) => { while (cells.length < columns) cells.push(''); return cells; };
+    if (op.type === 'set') {
+      const row = rows[op.row];
+      if (!row) {
+        const cells = pad([]);
+        cells[op.col] = formatField(op.value, delimiter);
+        const sep = !text || text.endsWith('\n') ? '' : '\n';
+        return `${text}${sep}${cells.join(delimiter)}\n`;
+      }
+      const cells = row.raws.slice();
+      while (cells.length <= op.col) cells.push('');
+      cells[op.col] = formatField(op.value, delimiter);
+      return text.slice(0, row.start) + cells.join(delimiter) + text.slice(row.end);
+    }
+    let raws = rows.map((r) => pad(r.raws.slice()));
+    switch (op.type) {
+      case 'insert-row': raws.splice(op.at, 0, pad([])); break;
+      case 'delete-row': raws.splice(op.row, 1); break;
+      case 'insert-col': raws = raws.map((r) => { r.splice(op.at, 0, ''); return r; }); break;
+      case 'delete-col': raws = raws.map((r) => { r.splice(op.col, 1); return r; }); break;
+      default: return text;
+    }
+    return raws.length ? `${raws.map((r) => r.join(delimiter)).join('\n')}\n` : '';
   }
 
   /**
@@ -253,7 +307,9 @@
     return value();
   }
 
-  const api = { parseDelimited, prettyJson, checkJson, jsonErrorOffset, parseJsonTree };
+  const api = {
+    parseDelimited, formatField, editDelimited, prettyJson, checkJson, jsonErrorOffset, parseJsonTree,
+  };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.DataPreview = api;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -18,6 +18,9 @@ contextBridge.exposeInMainWorld('markdownHelper', {
   confirmUnsaved: (fileName) => ipcRenderer.invoke('dialog:confirm-unsaved', fileName),
   getPathForFile: (file) => webUtils.getPathForFile(file),
   copyRich: (html, text) => ipcRenderer.invoke('clipboard:write-rich', { html, text }),
+  copyText: (text) => ipcRenderer.invoke('clipboard:write-text', text),
+  // Save a converted copy (kind: 'markdown' | 'csv') via a Save dialog; resolves to the path or null.
+  exportFile: (content, { defaultName, defaultDir, kind }) => ipcRenderer.invoke('file:export', { content, defaultName, defaultDir, kind }),
   // Native Format menu at (x, y) in the window; resolves when it closes. Picks arrive as 'format'.
   showFormatMenu: (options) => ipcRenderer.invoke('format-menu:show', options),
   // Right-click menu of the editable preview at (x, y); picks arrive as 'preview-format'.

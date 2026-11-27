@@ -185,17 +185,24 @@
     const dataRows = rows.length - 1;
     stats.textContent = `${dataRows.toLocaleString()} ${dataRows === 1 ? 'row' : 'rows'} · ${columns} ${columns === 1 ? 'column' : 'columns'}`;
 
-    const makeRow = (row, cellTag) => {
+    // Every cell can be edited (plain text; see "Editing a CSV / TSV table").
+    const makeRow = (row, index, cellTag) => {
       const tr = document.createElement('tr');
       tr.dataset.line = String(row.line);
-      for (let i = 0; i < columns; i += 1) tr.append(make(cellTag, '', row.cells[i] ?? ''));
+      tr.dataset.row = String(index); // 0 = the header
+      for (let i = 0; i < columns; i += 1) {
+        const cell = make(cellTag, '', row.cells[i] ?? '');
+        cell.contentEditable = 'plaintext-only';
+        cell.spellcheck = false;
+        tr.append(cell);
+      }
       return tr;
     };
     const table = make('table', 'data-table');
     const thead = make('thead');
-    thead.append(makeRow(rows[0], 'th'));
+    thead.append(makeRow(rows[0], 0, 'th'));
     const tbody = make('tbody');
-    for (const row of rows.slice(1, MAX_TABLE_ROWS + 1)) tbody.append(makeRow(row, 'td'));
+    rows.slice(1, MAX_TABLE_ROWS + 1).forEach((row, i) => tbody.append(makeRow(row, i + 1, 'td')));
     table.append(thead, tbody);
     const parts = [table];
     if (dataRows > MAX_TABLE_ROWS) {
@@ -583,7 +590,10 @@
     invalidateScrollMap();
   }
 
-  preview.addEventListener('input', (e) => syncFromPreview(e.target, e.inputType));
+  preview.addEventListener('input', (e) => {
+    if (isDataTable()) csvCellEdited(e.target, e.inputType);
+    else syncFromPreview(e.target, e.inputType);
+  });
   // Task-list checkboxes can be ticked in the preview.
   preview.addEventListener('change', (e) => {
     if (!e.target.matches?.('input[type="checkbox"]')) return;
@@ -945,6 +955,7 @@
   }
 
   function applyPreviewFormat(command) {
+    if (isDataTable()) { dataTableCommand(command); return; }
     if (!isPreviewEditable()) return;
     const state = previewFormatState();
     if (!state.editable) return;
@@ -954,6 +965,11 @@
     try {
       if (command === 'table-insert') {
         insertPreviewTable();
+        return;
+      }
+      if (command === 'table-copy-csv' || command === 'table-save-csv') {
+        const table = (dataMenuCell?.isConnected ? dataMenuCell : selectionElement())?.closest('table');
+        if (table) exportMarkdownTableCsv(tableElementToCsv(table), command === 'table-save-csv');
         return;
       }
       if (command.startsWith('table-')) {
@@ -974,8 +990,16 @@
   }
 
   preview.addEventListener('contextmenu', (e) => {
+    const dataCell = isDataTable() && e.target.closest?.('.data-table td, .data-table th');
+    if (dataCell && bridge.showPreviewMenu) {
+      e.preventDefault();
+      dataMenuCell = dataCell;
+      bridge.showPreviewMenu({ x: e.clientX, y: e.clientY, state: { dataTable: true, header: dataCell.tagName === 'TH' } });
+      return;
+    }
     if (!isPreviewEditable() || !bridge.showPreviewMenu) return;
     e.preventDefault();
+    dataMenuCell = e.target.closest?.('td, th') || null;
     // Nothing selected: right-clicking a word selects it, so Bold & co. apply to that word.
     const sel = getSelection();
     if (sel.isCollapsed || !preview.contains(sel.anchorNode)) {
@@ -1599,7 +1623,7 @@
 
   /** What the Markdown pane's menu shows as checked (see formatMenuTemplate in main.js). */
   function editorFormatState() {
-    if (!markdownTools) return { markdownTools };
+    if (!markdownTools) return { markdownTools, dataTable: isDataTable() };
     const { value, selectionStart: s, selectionEnd: e } = editor;
     const block = T.blockTypeAt(value, s);
     const table = block === 'table' ? T.tableAt(value, s) : null;
@@ -1618,6 +1642,10 @@
     code: inlineCommand('code'),
     ...Object.fromEntries(['p', 'h1', 'h2', 'h3', 'ul', 'ol', 'blockquote', 'pre'].map((t) => [t, blockCommand(t)])),
     'table-insert': () => markdownTools && applyEdit(T.insertTable(editor.value, editor.selectionStart)),
+    'table-copy-csv': () => markdownTools && exportMarkdownTableCsv(T.markdownTableToCsv(editor.value, editor.selectionStart), false),
+    'table-save-csv': () => markdownTools && exportMarkdownTableCsv(T.markdownTableToCsv(editor.value, editor.selectionStart), true),
+    'copy-markdown': () => isDataTable() && copyAsMarkdown(),
+    'save-markdown': () => isDataTable() && saveAsMarkdown(),
     ...Object.fromEntries(['table-row-above', 'table-row-below', 'table-col-left', 'table-col-right',
       'table-delete-row', 'table-delete-col', 'table-delete', 'table-align-left', 'table-align-center',
       'table-align-right'].map((c) => [c, tableCommandAt(c)])),
@@ -1656,6 +1684,128 @@
     e.preventDefault();
     bridge.showFormatMenu({ x: e.clientX, y: e.clientY, context: true, ...editorFormatState() });
   });
+
+  // ---------- Editing a CSV / TSV table in the preview, and CSV ↔ Markdown ----------
+  // Each cell is its own plain-text editable field (renderTable). Typing rewrites just that row of
+  // the source (DataPreview.editDelimited keeps the other fields exactly as written); row and
+  // column commands (right-click) rewrite the table and redraw it. Enter moves down, Tab / Shift+Tab
+  // move across (Tab in the last cell adds a row).
+  const isDataTable = () => kind === 'csv' || kind === 'tsv';
+  const delimiterOf = () => (kind === 'tsv' ? '\t' : ',');
+  let dataMenuCell = null; // the cell the CSV right-click menu was opened on
+
+  /** Replaces the whole source with `text` from a preview action: one undo step, marked Edited. */
+  function setSourceFromPreview(text, group = null) {
+    writeEditorQuietly(text);
+    history.record(editor.value, editorSelection(), group);
+    previewEdited = true;
+    updateDirty();
+  }
+
+  function csvCellEdited(target, inputType) {
+    const cell = target.closest?.('td, th');
+    const tr = cell?.parentElement;
+    if (!cell || tr?.dataset.row === undefined) return;
+    const text = window.DataPreview.editDelimited(editor.value, delimiterOf(), {
+      type: 'set', row: Number(tr.dataset.row), col: cell.cellIndex, value: cell.textContent,
+    });
+    setSourceFromPreview(text, inputGroup('preview', inputType));
+  }
+
+  function focusDataCell(row, col, atEnd = true) {
+    const tr = preview.querySelector(`.data-table tr[data-row="${row}"]`);
+    const cell = tr?.cells[Math.min(col, tr.cells.length - 1)];
+    if (cell) putCaretIn(cell, atEnd);
+  }
+
+  const DATA_OPS = {
+    'table-row-above': (r) => ({ op: { type: 'insert-row', at: r }, focus: [r, null] }),
+    'table-row-below': (r) => ({ op: { type: 'insert-row', at: r + 1 }, focus: [r + 1, null] }),
+    'table-col-left': (r, c) => ({ op: { type: 'insert-col', at: c }, focus: [r, c] }),
+    'table-col-right': (r, c) => ({ op: { type: 'insert-col', at: c + 1 }, focus: [r, c + 1] }),
+    'table-delete-row': (r) => ({ op: { type: 'delete-row', row: r }, focus: [Math.max(0, r - 1), null] }),
+    'table-delete-col': (r, c) => ({ op: { type: 'delete-col', col: c }, focus: [r, Math.max(0, c - 1)] }),
+  };
+
+  function dataTableCommand(command) {
+    if (command === 'copy-markdown') return copyAsMarkdown();
+    if (command === 'save-markdown') return saveAsMarkdown();
+    const cell = dataMenuCell?.isConnected ? dataMenuCell : selectionElement()?.closest('td, th');
+    const planOp = DATA_OPS[command];
+    if (!planOp) return undefined;
+    const r = cell ? Number(cell.parentElement.dataset.row) : 0;
+    const c = cell ? cell.cellIndex : 0;
+    const { op, focus } = planOp(r, c);
+    setSourceFromPreview(window.DataPreview.editDelimited(editor.value, delimiterOf(), op));
+    render();
+    focusDataCell(focus[0], focus[1] ?? c);
+    return undefined;
+  }
+
+  preview.addEventListener('keydown', (e) => {
+    if (!isDataTable() || e.metaKey || e.ctrlKey || e.altKey) return;
+    const cell = e.target.closest?.('td, th');
+    if (!cell) return;
+    const row = Number(cell.parentElement.dataset.row);
+    if (e.key === 'Enter') { // down a row (a CSV cell can't hold a line break here)
+      e.preventDefault();
+      focusDataCell(e.shiftKey ? Math.max(0, row - 1) : row + 1, cell.cellIndex);
+    } else if (e.key === 'Tab') {
+      e.preventDefault();
+      const cells = [...preview.querySelectorAll('.data-table th, .data-table td')];
+      const next = cells[cells.indexOf(cell) + (e.shiftKey ? -1 : 1)];
+      if (next) putCaretIn(next);
+      else if (!e.shiftKey) { dataMenuCell = cell; dataTableCommand('table-row-below'); focusDataCell(row + 1, 0); }
+    }
+  });
+
+  // Small confirmations ("Copied …", "Saved …") in the preview header, where the stats are.
+  let statusTimer = 0;
+  let statusRestore = null;
+  function noteStatus(message) {
+    if (statusRestore === null) statusRestore = stats.textContent;
+    stats.textContent = message;
+    clearTimeout(statusTimer);
+    statusTimer = setTimeout(() => { stats.textContent = statusRestore; statusRestore = null; }, 2500);
+  }
+
+  const exportDir = () => (doc.filePath ? parentDir(doc.filePath) : folder?.path) || undefined;
+  const baseStem = (fallback) => (doc.filePath ? baseName(doc.filePath).replace(/\.[^.]+$/, '') : fallback);
+
+  async function copyAsMarkdown() {
+    const md = T.delimitedToMarkdown(editor.value, delimiterOf());
+    if (!md) return;
+    await bridge.copyText(md);
+    noteStatus('Copied as a Markdown table ✓');
+  }
+
+  async function saveAsMarkdown() {
+    const md = T.delimitedToMarkdown(editor.value, delimiterOf());
+    if (!md) return;
+    try {
+      const saved = await bridge.exportFile(`${md}\n`, { defaultName: `${baseStem('Table')}.md`, defaultDir: exportDir(), kind: 'markdown' });
+      if (saved) noteStatus(`Saved ${baseName(saved)} ✓`);
+    } catch (err) { reportError('save the Markdown file', err); }
+  }
+
+  /** CSV text of a rendered table (cell text as shown, so no Markdown markup). */
+  function tableElementToCsv(table) {
+    const field = (cell) => window.DataPreview.formatField(cell.innerText.replace(/\n$/, ''), ',');
+    return `${[...table.rows].map((tr) => [...tr.cells].map(field).join(',')).join('\n')}\n`;
+  }
+
+  async function exportMarkdownTableCsv(csv, save) {
+    if (!csv) return;
+    if (!save) {
+      await bridge.copyText(csv);
+      noteStatus('Copied the table as CSV ✓');
+      return;
+    }
+    try {
+      const saved = await bridge.exportFile(csv, { defaultName: `${baseStem('table')}-table.csv`, defaultDir: exportDir(), kind: 'csv' });
+      if (saved) noteStatus(`Saved ${baseName(saved)} ✓`);
+    } catch (err) { reportError('save the CSV file', err); }
+  }
 
   // ---------- Find & Replace (Cmd+F, Option+Cmd+F, Cmd+G / Shift+Cmd+G; Edit ▸ Find) ----------
   // Searches the Markdown text (find.js). Matches are painted on an overlay laid out like the
