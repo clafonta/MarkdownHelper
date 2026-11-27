@@ -782,6 +782,35 @@
     syncFromPreview(target, 'formatTable'); // direct DOM changes: no input event
   }
 
+  /**
+   * Insert Table: a "Column 1 … 3" header and two empty rows, after the block the cursor is in
+   * (or in place of an empty paragraph), with "Column 1" selected to type over.
+   */
+  function insertPreviewTable() {
+    let block = selectionElement();
+    while (block && block.parentNode !== preview) block = block.parentNode;
+    const table = make('table');
+    const head = make('thead');
+    const headRow = make('tr');
+    for (let c = 1; c <= 3; c += 1) headRow.append(make('th', '', `Column ${c}`));
+    head.append(headRow);
+    const body = make('tbody');
+    for (let r = 0; r < 2; r += 1) {
+      const tr = make('tr');
+      for (let c = 0; c < 3; c += 1) tr.append(emptyCell('td', ''));
+      body.append(tr);
+    }
+    table.append(head, body);
+    if (block && block.isContentEditable && !block.textContent.trim() && block.tagName === 'P') block.replaceWith(table);
+    else if (block) block.after(table);
+    else preview.append(table);
+    const range = document.createRange();
+    range.selectNodeContents(headRow.cells[0]);
+    getSelection().removeAllRanges();
+    getSelection().addRange(range);
+    syncFromPreview(table, 'formatTable'); // a direct DOM change: no input event
+  }
+
   // Tab / Shift+Tab move between cells; Tab in the last cell adds a row.
   preview.addEventListener('keydown', (e) => {
     if (e.key !== 'Tab' || e.metaKey || e.ctrlKey || e.altKey || !isPreviewEditable()) return;
@@ -868,6 +897,10 @@
     teachPending = true;
     applyingFormat = true;
     try {
+      if (command === 'table-insert') {
+        insertPreviewTable();
+        return;
+      }
       if (command.startsWith('table-')) {
         tableCommand(command);
         return;
@@ -1560,6 +1593,7 @@
     strike: inlineCommand('strike'),
     code: inlineCommand('code'),
     ...Object.fromEntries(['p', 'h1', 'h2', 'h3', 'ul', 'ol', 'blockquote', 'pre'].map((t) => [t, blockCommand(t)])),
+    'table-insert': () => markdownTools && applyEdit(T.insertTable(editor.value, editor.selectionStart)),
     ...Object.fromEntries(['table-row-above', 'table-row-below', 'table-col-left', 'table-col-right',
       'table-delete-row', 'table-delete-col', 'table-delete', 'table-align-left', 'table-align-center',
       'table-align-right'].map((c) => [c, tableCommandAt(c)])),

@@ -111,3 +111,14 @@ test('tableEdit: columns, alignment, delete table', () => {
   assert.equal(r5.text, 'Before\n\nAfter\n');
   assert.equal(tableEdit('plain', 0, 'table-delete'), null);
 });
+
+test('insertTable: on a blank line, or after the current paragraph; Column 1 selected', () => {
+  const T = '| Column 1 | Column 2 | Column 3 |\n| -------- | -------- | -------- |\n|          |          |          |\n|          |          |          |';
+  const { insertTable } = require('../src/renderer/tools.js');
+  const show = (r) => `${r.text.slice(0, r.start)}«${r.text.slice(r.start, r.end)}»${r.text.slice(r.end)}`;
+  const sel = `| «Column 1» | Column 2 | Column 3 |\n${T.split('\n').slice(1).join('\n')}`;
+  assert.equal(show(insertTable('Intro\n\n\n\nEnd', 'Intro\n\n'.length)), `Intro\n\n${sel}\n\nEnd`);
+  assert.equal(show(insertTable('one\ntw|o\n\nEnd'.replace('|', ''), 5)), `one\ntwo\n\n${sel}\n\nEnd`);
+  assert.equal(show(insertTable('', 0)), sel);
+  assert.equal(show(insertTable('para', 2)), `para\n\n${sel}`);
+});

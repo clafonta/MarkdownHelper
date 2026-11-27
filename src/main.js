@@ -320,7 +320,11 @@ const menuHeading = (label) => ({ label, enabled: false });
 const SEPARATOR = { type: 'separator' };
 const CLIPBOARD = [SEPARATOR, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }];
 
-/** Text styles, then table structure (in a table) or paragraph types. */
+/**
+ * Text styles; then the paragraph types (not in a table: a cell can't hold them); then a Table
+ * submenu, so the top level stays short: in a table, its rows / columns / alignment, elsewhere
+ * Insert Table.
+ */
 function formattingItems(item, state) {
   const { block, table } = state;
   const text = [
@@ -330,30 +334,7 @@ function formattingItems(item, state) {
     item('Strikethrough', '~~text~~', 'strike', state.strike, 'CmdOrCtrl+Shift+X'),
     item('Inline Code', '`text`', 'code', state.code, 'CmdOrCtrl+E'),
   ];
-  if (table) {
-    // In a table: its structure instead of paragraph types (a cell can't hold those).
-    return [
-      ...text,
-      SEPARATOR,
-      menuHeading('Table'),
-      item('Insert Row Above', '| … | … |', 'table-row-above'),
-      item('Insert Row Below', '| … | … |', 'table-row-below'),
-      item('Insert Column Left', 'a cell in every row', 'table-col-left'),
-      item('Insert Column Right', 'a cell in every row', 'table-col-right'),
-      SEPARATOR,
-      menuHeading('Align Column'),
-      item('Align Left', '| :--- |', 'table-align-left', table.align === 'left'),
-      item('Align Center', '| :---: |', 'table-align-center', table.align === 'center'),
-      item('Align Right', '| ---: |', 'table-align-right', table.align === 'right'),
-      SEPARATOR,
-      item('Delete Row', table.header ? 'the next row becomes the header' : '', 'table-delete-row'),
-      item('Delete Column', '', 'table-delete-col'),
-      item('Delete Table', '', 'table-delete'),
-    ];
-  }
-  return [
-    ...text,
-    SEPARATOR,
+  const paragraph = [
     menuHeading('Paragraph'),
     item('Normal Text', 'just text', 'p', block === 'p'),
     item('Heading 1', '# Heading', 'h1', block === 'h1'),
@@ -364,6 +345,24 @@ function formattingItems(item, state) {
     item('Quote', '> text', 'blockquote', block === 'blockquote'),
     item('Code Block', '``` code ```', 'pre', block === 'pre'),
   ];
+  const tableItems = table
+    ? [
+      item('Insert Row Above', '| … | … |', 'table-row-above'),
+      item('Insert Row Below', '| … | … |', 'table-row-below'),
+      item('Insert Column Left', 'a cell in every row', 'table-col-left'),
+      item('Insert Column Right', 'a cell in every row', 'table-col-right'),
+      SEPARATOR,
+      item('Align Left', '| :--- |', 'table-align-left', table.align === 'left'),
+      item('Align Center', '| :---: |', 'table-align-center', table.align === 'center'),
+      item('Align Right', '| ---: |', 'table-align-right', table.align === 'right'),
+      SEPARATOR,
+      item('Delete Row', table.header ? 'the next row becomes the header' : '', 'table-delete-row'),
+      item('Delete Column', '', 'table-delete-col'),
+      item('Delete Table', '', 'table-delete'),
+    ]
+    : [item('Insert Table', '| a | b |', 'table-insert')];
+  const tableMenu = { label: 'Table', submenu: tableItems, enabled: tableItems[0].enabled };
+  return [...text, SEPARATOR, ...(table ? [] : [...paragraph, SEPARATOR]), tableMenu];
 }
 
 /**

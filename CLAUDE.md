@@ -86,9 +86,10 @@ dark mode toggle (right).
   lists; code blocks and un-`code` are direct DOM changes (`replaceBlock`/`toggleInlineCode`) that
   call `syncFromPreview` themselves (formatBlock can't turn a `<pre>` back into anything). Format
   commands set `teachPending` → `flashEditorRanges(changedRanges(...))` highlights the added
-  Markdown (`.editor-flash`, laid out like `.editor-mirror`). In a table cell the menu is the
-  table variant (`state.table`); `tableCommand()` edits rows/cells directly and syncs; Tab moves
-  between cells. `previewFormatState()` feeds the menu's checkmarks. Never let a
+  Markdown (`.editor-flash`, laid out like `.editor-mirror`). Table commands live in a Table submenu
+  (`formattingItems`: Insert Table outside a table, rows/columns/alignment in one via
+  `state.table`); `tableCommand()` / `insertPreviewTable()` edit the DOM directly and sync; Tab
+  moves between cells. `previewFormatState()` feeds the menu's checkmarks. Never let a
   `closest()` from the selection escape `#preview`. The editor's own Cmd+B/I is `toggleEmphasis`.
 - Editor formatting and text tools live in the native **Edit** menu (button `#btn-format` and
   right-click in the editor; `formatMenuTemplate` in main.js, popped up via `showFormatMenu` with

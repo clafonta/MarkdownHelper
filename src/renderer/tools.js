@@ -883,6 +883,33 @@
     return { text: result, start: caret, end: caret };
   }
 
+  /**
+   * Inserts a new table (a "Column 1 … Column n" header and `rows` empty rows) on the blank line
+   * at `pos`, or after the paragraph / block the cursor is in, with blank lines around it.
+   * Returns { text, start, end } with "Column 1" selected, ready to be typed over.
+   */
+  function insertTable(text, pos, columns = 3, rows = 2) {
+    const header = Array.from({ length: columns }, (_, c) => `Column ${c + 1}`);
+    const table = formatTables([
+      `| ${header.join(' | ')} |`,
+      `| ${header.map(() => '---').join(' | ')} |`,
+      ...Array.from({ length: rows }, () => `| ${header.map(() => '').join(' | ')} |`),
+    ].join('\n'));
+    const lines = text.split('\n');
+    let i = lineIndexAt(text, pos);
+    if (lines[i].trim()) { // after the block the cursor is in
+      while (i < lines.length - 1 && lines[i + 1].trim()) i += 1;
+      lines.splice(i + 1, 0, '', table);
+      i += 2;
+    } else {
+      lines[i] = table;
+      if (i > 0 && lines[i - 1].trim()) { lines.splice(i, 0, ''); i += 1; }
+    }
+    if (i < lines.length - 1 && lines[i + 1].trim()) lines.splice(i + 1, 0, ''); // a blank line after
+    const start = lineOffset(lines, i) + 2; // "| " → Column 1
+    return { text: lines.join('\n'), start, end: start + 'Column 1'.length };
+  }
+
   // ---------- Typing in lists: Enter continues a list, Tab / Shift+Tab nest ----------
 
   // Optional quote markers, indentation, a list marker, spaces, an optional task box.
@@ -1085,7 +1112,7 @@
 
   const api = {
     removeNewlines, formatTables, changeCase, cleanUpText, toTable, toggleEmphasis, toggleInline,
-    inlineStylesAt, blockTypeAt, setBlockType, tableAt, tableEdit, continueList, indentLines,
+    inlineStylesAt, blockTypeAt, setBlockType, tableAt, tableEdit, insertTable, continueList, indentLines,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.MarkdownTools = api;

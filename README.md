@@ -146,9 +146,11 @@ on the left updates as you go.
   shows the Markdown it writes (`**text**`, `# Heading`, `> text` …), a checkmark shows what's
   already applied (pick it again to remove it), and right-clicking a word with nothing selected
   selects that word.
-- **In a table**, right-click shows table options instead of paragraph types: Insert Row
-  Above / Below, Insert Column Left / Right, Align Column Left / Center / Right (`:---`,
-  `:-:`, `---:`), Delete Row / Column / Table, plus Bold, Italic & co. for the cell text.
+- **Tables:** the menu's **Table ▸** submenu has **Insert Table** (a 3-column table with a
+  header and two empty rows, "Column 1" selected so you can type over it). Right-clicking
+  **in a table** gives Bold, Italic & co. for the cell text, and the Table submenu becomes:
+  Insert Row Above / Below, Insert Column Left / Right, Align Left / Center / Right (`:---`,
+  `:-:`, `---:`), Delete Row / Column / Table.
   Inserting a row above the header makes a new header (the old one becomes a row); deleting the
   header row makes the next row the header. **Tab** / **Shift+Tab** move between cells, and Tab
   in the last cell adds a row. The Markdown table is kept aligned.
@@ -175,7 +177,7 @@ The **Edit** button in the editor header, and **right-click** in the editor, ope
 **Formatting** (Markdown and text files): the same items as the preview's right-click menu —
 Bold, Italic, Strikethrough, Inline Code, and Normal Text, Heading 1–3, Bulleted / Numbered
 List, Quote, Code Block for the line(s) you're on (a paragraph as a whole if nothing is
-selected), or, with the cursor in a table, the table options (insert / delete rows and columns,
+selected), and the Table submenu (Insert Table; in a table: insert / delete rows and columns,
 column alignment). Checkmarks show what's already applied; picking it again removes it. What
 changed lights up for a moment. Shortcuts: Cmd+B, Cmd+I, Shift+Cmd+X, Cmd+E.
 
