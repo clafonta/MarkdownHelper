@@ -9,6 +9,10 @@ dist/
 out/
 screenshots/
 
+# Brand kit exported from the design tool (local reference; the app icon is built from
+# build/icon.svg, see CLAUDE.md)
+brand/
+
 # Logs and debug output
 *.log
 npm-debug.log*

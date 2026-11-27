@@ -50,7 +50,8 @@ dark mode toggle (right).
   purpose: electron-builder reads them directly). `icon.svg` is the brand kit's final icon
   (`brand/Final.dc.html`, "08 — Focus · G3", 64-unit grid, same art at every size) placed on the
   macOS grid (824px tile on 1024). The brand kit is re-exported over time: check `canvas.json`
-  for new boards and use the newest final/selected one. Its ".md" is JetBrains Mono Bold converted to outlines (no font needed to
+  for new boards and use the newest final/selected one. `brand/` is git-ignored (local only), so
+  `build/icon.svg` is the committed source of the icon. Its ".md" is JetBrains Mono Bold converted to outlines (no font needed to
   render). After changing it: `npm run assets`, then `node scripts/brand-dev-electron.js`.
 - `scripts/make-assets.js` – rasterizes SVGs with Electron's Chromium + `iconutil`.
 - `scripts/brand-dev-electron.js` – renames dev `node_modules/electron/dist/Electron.app` to
