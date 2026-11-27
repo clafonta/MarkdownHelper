@@ -39,6 +39,13 @@ Diagrams are drawn with [Mermaid](https://mermaid.js.org/).
 You can also drag a file onto the window to open it. Unsaved changes are flagged in the header,
 and you're asked to save before closing, quitting, or replacing the document.
 
+**Unsaved text is recoverable.** While a document has unsaved changes, Markdown Helper keeps a
+copy of its text (in `~/Library/Application Support/Markdown Helper/Recovery`). If you choose
+**Don't Save**, or the app or Mac crashes, the next launch shows a bar listing what was
+recovered: **Open** brings the text back as the file it belonged to (marked Edited, so Save
+writes to that file, and Cmd+Z goes back to what's on disk), **Delete** throws it away. Saving
+removes the copy; copies older than 7 days are deleted.
+
 ### Folders
 
 Open a folder (File → Open Folder…, drag a folder onto the window, or `mdh somefolder` from the
@@ -114,6 +121,13 @@ tools below only apply to Markdown and text files.
   - **Tab / Shift+Tab** on a list item (cursor anywhere on it) nest it under the item above /
     bring it back up a level.
   - **Shift+Enter** is always a plain new line. Code blocks are left alone.
+- **Find & Replace** (Edit ▸ Find in the menu bar): **Cmd+F** opens a find bar above the editor
+  (filled in with the selected text); every match is highlighted and the count shows where you
+  are ("3 of 12"). **Enter** / **Cmd+G** go to the next match, **Shift+Enter** / **Shift+Cmd+G**
+  to the previous one; **Aa** matches case, **ab** only whole words. **Option+Cmd+F** (or the
+  arrow at the left) adds a Replace field: **Replace** changes the current match and moves on,
+  **Replace All** changes every match (one Cmd+Z undoes it). **Esc** closes the bar and leaves
+  the current match selected. Find searches the Markdown text, also while you edit in the preview.
 - **Line endings are kept:** a file with Windows (CRLF) line endings is saved with CRLF again.
 
 ### Diagrams

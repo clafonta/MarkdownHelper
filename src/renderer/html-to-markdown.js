@@ -277,7 +277,8 @@
 
   function block(n, ctx) {
     switch (tagOf(n)) {
-      case 'P': return paragraph(kidsOf(n), ctx);
+      // Chromium's list command can put a list inside a paragraph (<p><ul>…</ul></p>).
+      case 'P': return kidsOf(n).some(isBlock) ? blocks(kidsOf(n), ctx) : paragraph(kidsOf(n), ctx);
       case 'H1': case 'H2': case 'H3': case 'H4': case 'H5': case 'H6': return heading(n, ctx);
       case 'HR': return '---';
       case 'PRE': return codeBlock(n);

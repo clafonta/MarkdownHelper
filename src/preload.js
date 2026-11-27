@@ -33,6 +33,12 @@ contextBridge.exposeInMainWorld('markdownHelper', {
   revealEntry: (target) => ipcRenderer.invoke('entry:reveal', target),
   copyEntryPath: (target, relative) => ipcRenderer.invoke('entry:copy-path', { target, relative }),
 
+  // Recovering unsaved text (see main.js): a copy of the text while it has unsaved changes.
+  saveRecovery: (id, filePath, content) => ipcRenderer.invoke('recovery:save', { id, filePath, content }),
+  deleteRecovery: (id) => ipcRenderer.invoke('recovery:delete', id),
+  listRecovery: () => ipcRenderer.invoke('recovery:list'), // → [{ id, filePath, name, updatedAt, preview }]
+  readRecovery: (id) => ipcRenderer.invoke('recovery:read', id), // → { filePath, content }
+
   // Document state / window lifecycle
   reportState: (filePath, dirty) => ipcRenderer.send('doc:state', { filePath, dirty }),
   respondToClose: (proceed) => ipcRenderer.send('app:close-response', proceed),
@@ -61,5 +67,6 @@ contextBridge.exposeInMainWorld('markdownHelper', {
     ipcRenderer.on('menu:format', (_e, command) => handler('format', command));
     ipcRenderer.on('menu:preview-format', (_e, command) => handler('preview-format', command));
     ipcRenderer.on('menu:folder-action', (_e, pick) => handler('folder-action', pick));
+    ipcRenderer.on('menu:find', (_e, action) => handler('find', action)); // open | replace | next | previous
   },
 });

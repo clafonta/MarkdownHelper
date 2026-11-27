@@ -270,6 +270,72 @@ ipcMain.handle('dialog:confirm-unsaved', async (event, fileName) => {
   return ['save', 'discard', 'cancel'][response];
 });
 
+// ---------- Recovering unsaved text ----------
+// While a document has unsaved changes, the renderer keeps a copy of its text here (one JSON
+// file per open document, keyed by a random id). Saving deletes it; "Don't Save", opening
+// another file without saving, or a crash leave it, and the next launch offers it back.
+// Copies older than RECOVERY_DAYS are deleted.
+const RECOVERY_DAYS = 7;
+const RECOVERY_ID = /^[A-Za-z0-9-]{8,64}$/;
+const recoveryDir = () => path.join(app.getPath('userData'), 'Recovery');
+const recoveryFile = (id) => {
+  if (typeof id !== 'string' || !RECOVERY_ID.test(id)) throw new Error('Bad recovery id.');
+  return path.join(recoveryDir(), `${id}.json`);
+};
+let recoveryOffered = false; // offered once per app launch, to the first window that asks
+
+ipcMain.handle('recovery:save', async (_event, { id, filePath, content }) => {
+  const file = recoveryFile(id);
+  if (typeof content !== 'string') return;
+  await fs.mkdir(recoveryDir(), { recursive: true });
+  const tmp = `${file}.${process.hrtime.bigint()}.tmp`; // write, then rename: never half a file
+  await fs.writeFile(tmp, JSON.stringify({
+    id, filePath: typeof filePath === 'string' ? filePath : null, content, updatedAt: Date.now(),
+  }), 'utf8');
+  await fs.rename(tmp, file);
+});
+
+ipcMain.handle('recovery:delete', async (_event, id) => {
+  await fs.rm(recoveryFile(id), { force: true });
+});
+
+// [{ id, filePath, name, updatedAt, preview }], newest first; [] after the first call.
+ipcMain.handle('recovery:list', async () => {
+  if (recoveryOffered) return [];
+  recoveryOffered = true;
+  let names = [];
+  try { names = await fs.readdir(recoveryDir()); } catch { return []; }
+  const entries = [];
+  const oldest = Date.now() - RECOVERY_DAYS * 24 * 60 * 60 * 1000;
+  for (const name of names) {
+    const file = path.join(recoveryDir(), name);
+    if (name.endsWith('.tmp')) { await fs.rm(file, { force: true }); continue; } // an interrupted write
+    if (!name.endsWith('.json')) continue;
+    try {
+      const data = JSON.parse(await fs.readFile(file, 'utf8'));
+      if (!(data.updatedAt > oldest) || typeof data.content !== 'string' || !RECOVERY_ID.test(data.id)) {
+        await fs.rm(file, { force: true });
+        continue;
+      }
+      entries.push({
+        id: data.id,
+        filePath: data.filePath,
+        name: data.filePath ? path.basename(data.filePath) : 'Untitled',
+        updatedAt: data.updatedAt,
+        preview: data.content.trim().split('\n')[0].slice(0, 80),
+      });
+    } catch {
+      await fs.rm(file, { force: true }); // unreadable: nothing to recover
+    }
+  }
+  return entries.sort((x, y) => y.updatedAt - x.updatedAt);
+});
+
+ipcMain.handle('recovery:read', async (_event, id) => {
+  const data = JSON.parse(await fs.readFile(recoveryFile(id), 'utf8'));
+  return { filePath: data.filePath, content: data.content };
+});
+
 // Renderer reports which file is open and whether it has unsaved edits.
 ipcMain.on('doc:state', (event, { filePath, dirty }) => {
   const win = BrowserWindow.fromWebContents(event.sender);
@@ -473,6 +539,10 @@ ipcMain.on('theme:set', (_event, mode) => {
 
 // ---------- Menu ----------
 
+function sendFind(action) {
+  BrowserWindow.getFocusedWindow()?.webContents.send('menu:find', action);
+}
+
 function sendIfOpen(channel) {
   const win = BrowserWindow.getFocusedWindow();
   if (win) win.webContents.send(channel);
@@ -531,6 +601,17 @@ function buildMenu() {
         { role: 'pasteAndMatchStyle' },
         { role: 'delete' },
         { role: 'selectAll' },
+        { type: 'separator' },
+        {
+          // Find & Replace in the Markdown text (renderer.js, "Find & Replace").
+          label: 'Find',
+          submenu: [
+            { label: 'Find…', accelerator: 'CmdOrCtrl+F', click: () => sendFind('open') },
+            { label: 'Find and Replace…', accelerator: 'Alt+CmdOrCtrl+F', click: () => sendFind('replace') },
+            { label: 'Find Next', accelerator: 'CmdOrCtrl+G', click: () => sendFind('next') },
+            { label: 'Find Previous', accelerator: 'Shift+CmdOrCtrl+G', click: () => sendFind('previous') },
+          ],
+        },
       ],
     },
     { role: 'viewMenu' },

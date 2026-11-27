@@ -22,6 +22,9 @@
     </button>
   </header>
 
+  <!-- Unsaved text recovered from an earlier session (renderer.js showRecoveryBar). -->
+  <div id="recovery-bar" class="recovery-bar" role="region" aria-label="Recovered text" hidden></div>
+
   <main class="workspace">
     <aside id="sidebar" class="sidebar" aria-label="Folder files" hidden>
       <div class="pane-header">
@@ -49,6 +52,30 @@
               title="Formatting and text tools (also on right-click). Text tools apply to the selection, or to the whole document if nothing is selected">
               Edit<span class="menu-caret" aria-hidden="true"></span>
             </button>
+          </div>
+        </div>
+        <!-- Find & Replace (Cmd+F / Option+Cmd+F); renderer.js "Find & Replace" -->
+        <div id="find-bar" class="find-bar" role="search" aria-label="Find in document" hidden>
+          <div class="find-row">
+            <button id="find-toggle-replace" class="find-btn" type="button" aria-expanded="false" title="Show Replace (⌥⌘F)" aria-label="Show Replace">
+              <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M4.5 2.5L8 6l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <input id="find-input" class="find-input" type="text" placeholder="Find" aria-label="Find" spellcheck="false" autocomplete="off" />
+            <span id="find-count" class="find-count" aria-live="polite"></span>
+            <button id="find-case" class="find-btn find-opt" type="button" aria-pressed="false" title="Match Case">Aa</button>
+            <button id="find-word" class="find-btn find-opt" type="button" aria-pressed="false" title="Whole Words"><u>ab</u></button>
+            <button id="find-prev" class="find-btn" type="button" title="Previous (⇧⌘G or ⇧Enter)" aria-label="Previous match">
+              <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 7.5L6 4l3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <button id="find-next" class="find-btn" type="button" title="Next (⌘G or Enter)" aria-label="Next match">
+              <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 4.5L6 8l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <button id="find-close" class="find-btn" type="button" title="Close (Esc)" aria-label="Close find">×</button>
+          </div>
+          <div id="replace-row" class="find-row" hidden>
+            <input id="replace-input" class="find-input" type="text" placeholder="Replace" aria-label="Replace with" spellcheck="false" autocomplete="off" />
+            <button id="replace-one" class="tool-btn find-action" type="button" title="Replace this match and go to the next">Replace</button>
+            <button id="replace-all" class="tool-btn find-action" type="button" title="Replace every match">Replace All</button>
           </div>
         </div>
         <textarea id="editor" class="editor" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off"></textarea>
@@ -92,6 +119,7 @@
   <script src="html-to-markdown.js"></script>
   <script src="undo-history.js"></script>
   <script src="text-diff.js"></script>
+  <script src="find.js"></script>
   <script src="scroll-map.js"></script>
   <script src="export-html.js"></script>
   <script src="mermaid-render.js"></script>

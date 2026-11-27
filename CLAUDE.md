@@ -44,6 +44,8 @@ dark mode toggle (right).
   - `undo-history.js` – app-owned undo/redo snapshots shared by both panes (window.UndoHistory)
   - `text-diff.js` – `changedRanges(old, new)`: what a format command added, minus whitespace/dash
     padding, for the editor highlight (window.TextDiff)
+  - `find.js` – Find & Replace matching: `findMatches` (literal, case / whole-word options),
+    `matchAfter`, `replaceMatches` (window.Find)
   - `export-html.js` – clean semantic HTML for "Copy" (no fonts/sizes/colors) (window.ExportHtml; DOM-dependent)
   - `renderer.js` – UI wiring: rendering, document state, toolbar, sync scroll, theme, folder sidebar
 - `build/` – icon + DMG background SVG sources **and** their generated PNG/ICNS (committed on
@@ -83,9 +85,10 @@ dark mode toggle (right).
   editor focus/input. Mermaid and raw-HTML tokens are `contenteditable=false` and pass through via
   `rawOf`. A plain Save doesn't re-render the preview.
 - Preview formatting (shortcuts + right-click menu `previewMenuTemplate` in main.js → `preview-format`
-  command → `applyPreviewFormat` in renderer.js): execCommand for inline styles, headings, quote and
-  lists; code blocks and un-`code` are direct DOM changes (`replaceBlock`/`toggleInlineCode`) that
-  call `syncFromPreview` themselves (formatBlock can't turn a `<pre>` back into anything). Format
+  command → `applyPreviewFormat` in renderer.js): execCommand for bold / italic / strikethrough
+  only. Paragraph types (`setPreviewBlockType`: every selected paragraph / list item / quote line /
+  code line becomes one line of the new type; partly selected lists and quotes are split) and
+  un-`code` (`toggleInlineCode`) are direct DOM changes that call `syncFromPreview` themselves. Format
   commands set `teachPending` → `flashEditorRanges(changedRanges(...))` highlights the added
   Markdown (`.editor-flash`, laid out like `.editor-mirror`). Table commands live in a Table submenu
   (`formattingItems`: Insert Table outside a table, rows/columns/alignment in one via
@@ -100,6 +103,17 @@ dark mode toggle (right).
   functions (`toggleInline`, `setBlockType`, `tableEdit`, + `inlineStylesAt`/`blockTypeAt`/
   `tableAt` for state) and `applyEdit` → `replaceRange`. New tool = transform in tools.js + test,
   a menu item, and a `FORMAT_COMMANDS` entry.
+- Find & Replace: Edit ▸ Find menu items (Cmd+F / ⌥⌘F / ⌘G / ⇧⌘G) send `menu:find` →
+  `openFind` / `findNext` in renderer.js. Matches are painted on `.editor-find` (an overlay laid
+  out like `.editor-mirror`, since the textarea doesn't paint its selection while the find field
+  has focus); the current match is also the editor selection. `updateDirty` calls
+  `refreshFind()`, so any text change (typing, preview sync, undo, tools) re-searches.
+- Unsaved-text recovery: renderer keeps a copy per open document (`docId`, written by
+  `saveRecovery` 1 s after a change via `noteRecovery` in `updateDirty`; deleted when the doc is
+  clean). `flushRecovery()` writes it immediately before a document is replaced (`loadDocument`)
+  or a window closes after "Don't Save". Storage: `recovery:*` IPC in main → userData/Recovery/
+  `<id>.json` (written via tmp + rename; ids validated; >7 days pruned). `recovery:list` answers
+  only the first window per launch; the renderer shows `#recovery-bar`.
 - Folder sidebar right-click: `folderMenuTemplate` in main → `folder-action` → `runFolderAction`
   in renderer.js. Names are typed inline (`nameField`; `treeEditing` blocks tree refreshes while
   it's open). File ops are `entry:*` IPC handlers in main; every path goes through
@@ -155,6 +169,9 @@ dark mode toggle (right).
 - A `<textarea>` stops painting its selection when it loses focus. Buttons that act on the
   selection (Edit) must not take focus: `mousedown` → `preventDefault()`, and `editor.focus()`
   before opening the menu.
+- Don't use Chromium's `formatBlock` / `insertUnorderedList` / `insertOrderedList` / `outdent` in
+  the preview: across several paragraphs they produce `<p><ul>…</ul></p>`, one heading joined by
+  `<br>`s, `<br>`-separated quote lines, and can't turn a `<pre>` back into anything.
 - Sticky `<thead>` needs `border-collapse: separate` (`.data-table`); with collapsed borders
   Chromium lets scrolled rows show through the header's top edge.
 
@@ -169,6 +186,9 @@ dark mode toggle (right).
 ## Verifying changes in the real app
 
 Unit tests don't cover the UI. To check behavior, write a throwaway harness in the scratchpad that
+calls `app.setPath('userData', <scratch dir>)` **before** requiring main (a harness that quits
+with unsaved text would otherwise leave recovery copies in the real profile, offered on the
+user's next launch), then
 `require`s `src/main.js`, hooks `app.on('browser-window-created')`, drives the page with
 `webContents.executeJavaScript(...)` / `webContents.send('menu:...')`, saves
 `webContents.capturePage()` PNGs, and calls `app.exit(0)`. Run it with

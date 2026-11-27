@@ -843,50 +843,105 @@
     }
   }
 
-  /** Replaces `old` with `nodes`, puts the cursor at the end of the first, syncs the source. */
-  function replaceBlock(old, nodes) {
-    old.replaceWith(...nodes);
-    const range = document.createRange();
-    range.selectNodeContents(nodes[0]);
-    range.collapse(false);
-    getSelection().removeAllRanges();
-    getSelection().addRange(range);
-    syncFromPreview(nodes[0], 'formatBlock'); // direct DOM change: no input event
-  }
+  // ---------- Paragraph types in the preview (Normal Text, Headings, Lists, Quote, Code Block) ----------
+  // Done by hand, not with Chromium's formatBlock / insertUnorderedList: those mangle selections
+  // across several paragraphs (three paragraphs → one heading joined by <br>s, a list inside a
+  // <p>, a quote of <br>-separated lines). Here every selected "line" (a paragraph, heading,
+  // list item, a quote's paragraph, a code block's line) becomes one line of the new type, inline
+  // formatting kept; a list or quote that's only partly selected is split around the selection.
+  const BLOCK_TYPES = new Set(['P', 'DIV', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'UL', 'OL', 'BLOCKQUOTE', 'PRE']);
 
-  // Code blocks are converted by hand: Chromium's formatBlock nests a <p> inside a <pre>
-  // instead of replacing it, and can't make <pre><code>.
-  function toCodeBlock() {
-    const blockAtCursor = () => {
-      const block = selectionElement()?.closest('p, h1, h2, h3, h4, h5, h6, div');
-      return block && block !== preview && preview.contains(block) ? block : null; // never leave the preview
-    };
-    // Text that isn't in a block (e.g. just taken out of a quote) gets one first.
-    if (!blockAtCursor()) document.execCommand('formatBlock', false, 'p');
-    const block = blockAtCursor();
-    if (!block) return;
-    const pre = make('pre');
-    pre.append(make('code', '', block.innerText.replace(/\n$/, '')));
-    replaceBlock(block, [pre]);
-  }
-
-  function fromCodeBlock(command) {
-    const pre = selectionElement()?.closest('pre');
-    if (!pre) return;
-    const lines = pre.innerText.replace(/^\n/, '').replace(/\n$/, '').split('\n').filter((l) => l.trim());
-    if (!lines.length) lines.push('');
-    const filled = (tag) => lines.map((line) => make(tag, '', line));
-    let nodes;
-    if (command === 'ul' || command === 'ol') {
-      nodes = [make(command)];
-      nodes[0].append(...filled('li'));
-    } else if (command === 'blockquote') {
-      nodes = [make('blockquote')];
-      nodes[0].append(...filled('p'));
-    } else {
-      nodes = filled(command === 'pre' ? 'p' : command); // Code Block again = back to text
+  /** The lines of a top-level block: { el, type, container }. */
+  function linesOf(el) {
+    const tag = el.tagName;
+    if (tag === 'UL' || tag === 'OL') {
+      return [...el.children].filter((c) => c.tagName === 'LI').map((li) => ({ el: li, type: tag.toLowerCase(), container: el }));
     }
-    replaceBlock(pre, nodes);
+    if (tag === 'BLOCKQUOTE') return [...el.children].map((c) => ({ el: c, type: 'blockquote', container: el }));
+    if (tag === 'PRE') return [{ el, type: 'pre', container: null }];
+    const type = tag === 'P' || tag === 'DIV' ? 'p' : tag.toLowerCase().replace(/^h[4-6]$/, 'h3');
+    return [{ el, type, container: null }];
+  }
+
+  /** Lines that stay as they were, back in (copies of) their own list or quote. */
+  function regroup(lines) {
+    const out = [];
+    for (const line of lines) {
+      if (!line.container) { out.push(line.el); continue; }
+      const last = out[out.length - 1];
+      if (last?.__from === line.container) last.append(line.el);
+      else {
+        const copy = line.container.cloneNode(false); // keeps the tag, start=…, data-block
+        copy.__from = line.container;
+        copy.append(line.el);
+        out.push(copy);
+      }
+    }
+    return out;
+  }
+
+  /** New elements of `type` holding the given lines' contents. */
+  function buildLines(type, lines) {
+    if (type === 'pre') {
+      const pre = make('pre');
+      pre.append(make('code', '', lines.map((l) => l.el.innerText.replace(/\n$/, '')).join('\n')));
+      return [pre];
+    }
+    // A code block's lines each become a line of their own (as plain text).
+    const contents = lines.flatMap((l) => (l.type === 'pre'
+      ? l.el.textContent.replace(/^\n/, '').replace(/\n$/, '').split('\n').map((t) => [document.createTextNode(t)])
+      : [[...l.el.childNodes]]));
+    const wrap = (tag, nodes) => {
+      const el = make(tag);
+      el.append(...(nodes.length ? nodes : [make('br')]));
+      return el;
+    };
+    if (type === 'ul' || type === 'ol') return [wrap(type, contents.map((c) => wrap('li', c)))];
+    if (type === 'blockquote') return [wrap('blockquote', contents.map((c) => wrap('p', c)))];
+    return contents.map((c) => wrap(type, c)); // p, h1–h3
+  }
+
+  /**
+   * Makes the selected lines (or the line at the cursor) `target`: 'p' | 'h1'–'h3' | 'ul' | 'ol' |
+   * 'blockquote' | 'pre'. If they all already are, they become normal text instead.
+   */
+  function setPreviewBlockType(target) {
+    const sel = getSelection();
+    if (!sel.rangeCount) return;
+    const range = sel.getRangeAt(0);
+    // Runs of convertible top-level blocks in the selection (tables, rules, diagrams split runs).
+    const runs = [];
+    let run = [];
+    for (const el of preview.children) {
+      if (!range.intersectsNode(el)) continue;
+      if (BLOCK_TYPES.has(el.tagName) && el.isContentEditable) run.push(el);
+      else if (run.length) { runs.push(run); run = []; }
+    }
+    if (run.length) runs.push(run);
+    const runLines = runs.map((blocks) => blocks.flatMap(linesOf));
+    const picked = runLines.flat().filter((l) => range.intersectsNode(l.el));
+    if (!picked.length) return;
+    const type = picked.every((l) => l.type === target) ? 'p' : target; // again = off
+    const created = [];
+    runs.forEach((blocks, i) => {
+      const lines = runLines[i];
+      const mine = lines.filter((l) => picked.includes(l));
+      if (!mine.length) return;
+      const first = lines.indexOf(mine[0]);
+      const last = lines.indexOf(mine[mine.length - 1]);
+      const made = buildLines(type, mine);
+      created.push(...made);
+      blocks[0].before(...regroup(lines.slice(0, first)), ...made, ...regroup(lines.slice(last + 1)));
+      for (const el of blocks) el.remove();
+    });
+    // Select what changed (with the cursor at its end if there was no selection).
+    const r = document.createRange();
+    r.setStartBefore(created[0]);
+    r.setEndAfter(created[created.length - 1]);
+    if (sel.isCollapsed) r.collapse(false);
+    sel.removeAllRanges();
+    sel.addRange(r);
+    syncFromPreview(created[0], 'formatBlock'); // direct DOM changes: no input event
   }
 
   function applyPreviewFormat(command) {
@@ -905,43 +960,12 @@
         tableCommand(command);
         return;
       }
-      if (state.block === 'pre' && !['bold', 'italic', 'strike', 'code'].includes(command)) {
-        fromCodeBlock(command);
-        return;
-      }
       switch (command) {
         case 'bold': document.execCommand('bold'); break;
         case 'italic': document.execCommand('italic'); break;
         case 'strike': document.execCommand('strikeThrough'); break;
         case 'code': toggleInlineCode(); break;
-        case 'ul': case 'ol': {
-          const listCommand = command === 'ul' ? 'insertUnorderedList' : 'insertOrderedList';
-          // Out of a quote / heading / code block first, so the list is a plain list.
-          if (state.block !== 'ul' && state.block !== 'ol' && state.block !== 'p') document.execCommand('formatBlock', false, 'p');
-          document.execCommand(listCommand);
-          break;
-        }
-        case 'pre':
-          if (state.block === 'ul' || state.block === 'ol') {
-            document.execCommand(state.block === 'ul' ? 'insertUnorderedList' : 'insertOrderedList');
-          } else if (state.block === 'blockquote') {
-            document.execCommand('outdent');
-          }
-          toCodeBlock();
-          break;
-        default: { // p, h1–h3, blockquote: picking the current one again turns it off
-          const off = state.block === command;
-          if (state.block === 'ul' || state.block === 'ol') {
-            document.execCommand(state.block === 'ul' ? 'insertUnorderedList' : 'insertOrderedList');
-          } else if (state.block === 'blockquote') {
-            document.execCommand('outdent'); // formatBlock can't take a paragraph out of a quote
-          }
-          if (off || command === 'p') {
-            if (state.block !== 'blockquote') document.execCommand('formatBlock', false, 'p');
-          } else {
-            document.execCommand('formatBlock', false, command);
-          }
-        }
+        default: setPreviewBlockType(command); // p, h1–h3, ul, ol, blockquote, pre
       }
     } finally {
       applyingFormat = false;
@@ -1633,6 +1657,202 @@
     bridge.showFormatMenu({ x: e.clientX, y: e.clientY, context: true, ...editorFormatState() });
   });
 
+  // ---------- Find & Replace (Cmd+F, Option+Cmd+F, Cmd+G / Shift+Cmd+G; Edit ▸ Find) ----------
+  // Searches the Markdown text (find.js). Matches are painted on an overlay laid out like the
+  // editor (.editor-find, same styles as .editor-mirror): a textarea doesn't show its selection
+  // while the find field has focus. The current match is also the editor's selection, so Escape
+  // leaves it selected. Replacements go through replaceRange (Replace All is one undo step).
+  const findBar = document.getElementById('find-bar');
+  const findInput = document.getElementById('find-input');
+  const findCount = document.getElementById('find-count');
+  const findCaseBtn = document.getElementById('find-case');
+  const findWordBtn = document.getElementById('find-word');
+  const replaceRow = document.getElementById('replace-row');
+  const replaceInput = document.getElementById('replace-input');
+  const replaceToggle = document.getElementById('find-toggle-replace');
+  const findLayer = make('div', 'editor-find');
+  findLayer.setAttribute('aria-hidden', 'true');
+  findLayer.hidden = true;
+  editor.parentElement.append(findLayer);
+  const findState = { matches: [], current: -1, origin: 0, note: '', noteFor: null };
+  const findOpen = () => !findBar.hidden;
+
+  function paintFind() {
+    const { matches, current } = findState;
+    if (!findOpen() || !matches.length) {
+      findLayer.hidden = true;
+      findLayer.replaceChildren();
+      return;
+    }
+    const text = editor.value;
+    const parts = [];
+    let at = 0;
+    matches.forEach(([start, end], i) => {
+      const mark = document.createElement('mark');
+      if (i === current) mark.className = 'is-current';
+      mark.textContent = text.slice(start, end);
+      parts.push(text.slice(at, start), mark);
+      at = end;
+    });
+    parts.push(`${text.slice(at)}\n`);
+    findLayer.replaceChildren(...parts);
+    Object.assign(findLayer.style, {
+      top: `${editor.offsetTop}px`,
+      left: `${editor.offsetLeft}px`,
+      width: `${editor.clientWidth}px`,
+      height: `${editor.clientHeight}px`,
+    });
+    findLayer.hidden = false;
+    findLayer.scrollTop = editor.scrollTop;
+  }
+
+  function showFindCount() {
+    const n = findState.matches.length;
+    findCount.classList.toggle('is-none', !!findInput.value && !n && !findState.note);
+    if (findState.note) findCount.textContent = findState.note;
+    else if (!findInput.value) findCount.textContent = '';
+    else if (!n) findCount.textContent = 'No results';
+    else findCount.textContent = `${findState.current + 1} of ${n}${n >= window.Find.MAX_MATCHES ? '+' : ''}`;
+  }
+
+  /** Searches again; the current match is the first one at or after `from`. */
+  function runFind(from = editor.selectionStart) {
+    if (editor.value !== findState.noteFor) findState.note = ''; // "Replaced 3": until the text changes
+    findState.matches = window.Find.findMatches(editor.value, findInput.value, {
+      matchCase: findCaseBtn.getAttribute('aria-pressed') === 'true',
+      wholeWord: findWordBtn.getAttribute('aria-pressed') === 'true',
+    });
+    findState.current = window.Find.matchAfter(findState.matches, from);
+    paintFind();
+    showFindCount();
+  }
+
+  /** Makes match i current: selects it in the editor and scrolls it into view. */
+  function goToMatch(i) {
+    findState.current = i;
+    findState.note = '';
+    if (i < 0) { paintFind(); showFindCount(); return; }
+    const [start, end] = findState.matches[i];
+    editor.setSelectionRange(start, end);
+    paintFind();
+    showFindCount();
+    const mark = findLayer.querySelector('mark.is-current');
+    if (mark && (mark.offsetTop < editor.scrollTop || mark.offsetTop + mark.offsetHeight > editor.scrollTop + editor.clientHeight)) {
+      editor.scrollTop = Math.max(0, mark.offsetTop - editor.clientHeight / 3); // the preview follows (sync scroll)
+      findLayer.scrollTop = editor.scrollTop;
+    }
+  }
+
+  function setReplaceShown(shown) {
+    replaceRow.hidden = !shown;
+    replaceToggle.setAttribute('aria-expanded', String(shown));
+    replaceToggle.title = shown ? 'Hide Replace' : 'Show Replace (⌥⌘F)';
+  }
+
+  function openFind(withReplace) {
+    // Start from the selected text (in either pane), if it's on one line.
+    const selected = preview.contains(document.activeElement)
+      ? String(getSelection())
+      : editor.value.slice(editor.selectionStart, editor.selectionEnd);
+    if (selected && !selected.includes('\n') && selected.length < 200) findInput.value = selected;
+    findBar.hidden = false;
+    if (withReplace) setReplaceShown(true);
+    findState.origin = editor.selectionStart;
+    findState.note = '';
+    runFind(findState.origin);
+    if (findState.current >= 0) goToMatch(findState.current);
+    const field = withReplace && findInput.value ? replaceInput : findInput;
+    field.focus();
+    field.select();
+  }
+
+  function findNext(backwards) {
+    if (!findOpen() && !findInput.value) { openFind(false); return; }
+    if (!findOpen()) runFind();
+    const { matches, current } = findState;
+    if (!matches.length) { showFindCount(); return; }
+    const next = current < 0
+      ? window.Find.matchAfter(matches, editor.selectionStart, backwards)
+      : (current + (backwards ? -1 : 1) + matches.length) % matches.length;
+    goToMatch(next);
+  }
+
+  function closeFind() {
+    findBar.hidden = true;
+    findState.note = '';
+    paintFind();
+    editor.focus(); // the current match stays selected
+  }
+
+  function replaceCurrent() {
+    const { matches, current } = findState;
+    if (current < 0) return;
+    const [start, end] = matches[current];
+    const replacement = replaceInput.value;
+    replaceRange(start, end, replacement);
+    runFind(start + replacement.length);
+    if (findState.current >= 0) goToMatch(findState.current);
+    replaceInput.focus();
+  }
+
+  function replaceAll() {
+    const n = findState.matches.length;
+    if (!n) return;
+    const text = window.Find.replaceMatches(editor.value, findState.matches, replaceInput.value);
+    replaceRange(0, editor.value.length, text); // one undo step
+    findState.note = `Replaced ${n}`;
+    findState.noteFor = editor.value;
+    runFind(0);
+    showFindCount();
+    replaceInput.focus();
+  }
+
+  // The text changed (typing, the preview, undo, a tool …): search again, without jumping.
+  let findQueued = false;
+  function refreshFind() {
+    if (!findOpen() || findQueued) return;
+    findQueued = true;
+    requestAnimationFrame(() => {
+      findQueued = false;
+      const at = findState.current >= 0 ? findState.matches[findState.current][0] : editor.selectionStart;
+      runFind(Math.min(at, editor.value.length));
+    });
+  }
+
+  findInput.addEventListener('input', () => {
+    findState.note = '';
+    runFind(findState.origin);
+    if (findState.current >= 0) goToMatch(findState.current);
+  });
+  for (const btn of [findCaseBtn, findWordBtn]) {
+    btn.addEventListener('mousedown', (e) => e.preventDefault()); // keep focus in the field
+    btn.addEventListener('click', () => {
+      btn.setAttribute('aria-pressed', String(btn.getAttribute('aria-pressed') !== 'true'));
+      runFind(findState.origin);
+      if (findState.current >= 0) goToMatch(findState.current);
+    });
+  }
+  findInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); findNext(e.shiftKey); }
+  });
+  replaceInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); replaceCurrent(); }
+  });
+  findBar.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); closeFind(); }
+  });
+  document.getElementById('find-next').addEventListener('click', () => findNext(false));
+  document.getElementById('find-prev').addEventListener('click', () => findNext(true));
+  document.getElementById('find-close').addEventListener('click', closeFind);
+  document.getElementById('replace-one').addEventListener('click', replaceCurrent);
+  document.getElementById('replace-all').addEventListener('click', replaceAll);
+  replaceToggle.addEventListener('click', () => {
+    setReplaceShown(replaceRow.hidden);
+    (replaceRow.hidden ? findInput : replaceInput).focus();
+  });
+  editor.addEventListener('scroll', () => { if (!findLayer.hidden) findLayer.scrollTop = editor.scrollTop; });
+  new ResizeObserver(() => { if (findOpen()) paintFind(); }).observe(editor);
+
   // ---------- Document (open / save / dirty tracking) ----------
   const docNameEl = document.getElementById('doc-name');
   const docDirtyEl = document.getElementById('doc-dirty');
@@ -1643,6 +1863,8 @@
 
   function updateDirty() {
     const dirty = editor.value !== doc.savedContent;
+    noteRecovery(dirty);
+    refreshFind();
     if (dirty === doc.dirty && docNameEl.textContent === baseName(doc.filePath)) return;
     doc.dirty = dirty;
     docNameEl.textContent = baseName(doc.filePath);
@@ -1652,7 +1874,121 @@
   }
   editor.addEventListener('input', updateDirty);
 
+  // ---------- Recovering unsaved text (storage in main.js, "Recovering unsaved text") ----------
+  // While the document has unsaved changes, a copy of its text is kept (a second after the last
+  // change). Saving deletes it. "Don't Save" (closing, quitting, opening another file) keeps it:
+  // the copy is written right away then, and the next launch offers it in the recovery bar.
+  const RECOVERY_DELAY = 1000;
+  const newDocId = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  let docId = newDocId(); // which recovery copy belongs to the open document
+  let recoveryTimer = 0;
+  let recoveryStored = false;
+
+  function noteRecovery(dirty) {
+    clearTimeout(recoveryTimer);
+    recoveryTimer = 0;
+    if (dirty) {
+      recoveryTimer = setTimeout(saveRecovery, RECOVERY_DELAY);
+    } else if (recoveryStored) {
+      recoveryStored = false;
+      bridge.deleteRecovery?.(docId).catch(console.error);
+    }
+  }
+
+  async function saveRecovery() {
+    recoveryTimer = 0;
+    if (editor.value === doc.savedContent || !bridge.saveRecovery) return;
+    recoveryStored = true;
+    try { await bridge.saveRecovery(docId, doc.filePath, editor.value); } catch (err) { console.error(err); }
+  }
+
+  /** Writes a pending copy now (before the document is closed or replaced without saving). */
+  async function flushRecovery() {
+    if (!recoveryTimer) return;
+    clearTimeout(recoveryTimer);
+    await saveRecovery();
+  }
+
+  const recoveryBar = document.getElementById('recovery-bar');
+
+  function whenText(time) {
+    const d = new Date(time);
+    const today = new Date();
+    const clock = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    if (d.toDateString() === today.toDateString()) return `today at ${clock}`;
+    return `${d.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' })} at ${clock}`;
+  }
+
+  /** The bar under the header listing recovered text (from earlier sessions). */
+  function showRecoveryBar(entries) {
+    if (!entries?.length) { recoveryBar.hidden = true; return; }
+    const head = make('div', 'recovery-head');
+    head.append(
+      make('strong', '', entries.length === 1 ? 'Unsaved text was recovered' : `${entries.length} unsaved documents were recovered`),
+      make('span', 'recovery-note', ' — from when Markdown Helper was last closed. Kept for 7 days.'),
+    );
+    const hide = make('button', 'icon-btn recovery-hide', '×');
+    hide.type = 'button';
+    hide.title = 'Hide (the recovered text is kept)';
+    hide.setAttribute('aria-label', hide.title);
+    hide.addEventListener('click', () => { recoveryBar.hidden = true; });
+    head.append(hide);
+    const list = make('ul', 'recovery-list');
+    for (const entry of entries) {
+      const li = make('li');
+      li.append(make('span', 'recovery-name', entry.name));
+      li.append(make('span', 'recovery-meta', ` · ${whenText(entry.updatedAt)}${entry.preview ? ` · “${entry.preview}”` : ''}`));
+      const open = make('button', 'tool-btn', 'Open');
+      open.type = 'button';
+      open.addEventListener('click', () => openRecovered(entry, li));
+      const remove = make('button', 'tool-btn', 'Delete');
+      remove.type = 'button';
+      remove.addEventListener('click', async () => {
+        await bridge.deleteRecovery(entry.id).catch(console.error);
+        dropRecoveryRow(li);
+      });
+      li.append(open, remove);
+      list.append(li);
+    }
+    recoveryBar.replaceChildren(head, list);
+    recoveryBar.hidden = false;
+  }
+
+  function dropRecoveryRow(li) {
+    li.remove();
+    if (!recoveryBar.querySelector('li')) recoveryBar.hidden = true;
+  }
+
+  /**
+   * Opens recovered text as the file it belonged to (Edited; Save writes there, Cmd+Z goes back
+   * to what's on disk), or as an Untitled document if that file is gone.
+   */
+  async function openRecovered(entry, li) {
+    if (!(await confirmDiscard())) return;
+    try {
+      const { filePath, content } = await bridge.readRecovery(entry.id);
+      let disk = null;
+      if (filePath) {
+        try { disk = await bridge.openPath(filePath); } catch { disk = null; } // moved or deleted
+      }
+      if (disk) loadDocument(disk.filePath, disk.content, disk.eol);
+      else loadDocument(null, '');
+      replaceRange(0, editor.value.length, content); // an undo step back to the saved text
+      editor.setSelectionRange(0, 0);
+      editor.scrollTop = 0;
+      render();
+      updateDirty();
+      await bridge.deleteRecovery(entry.id); // the open document has its own copy from now on
+      dropRecoveryRow(li);
+    } catch (err) {
+      reportError('open the recovered text', err);
+    }
+  }
+
   function loadDocument(filePath, content, eol = '\n') {
+    flushRecovery(); // the document being replaced keeps its copy if it wasn't saved
+    docId = newDocId();
+    recoveryStored = false;
     doc.filePath = filePath;
     doc.eol = eol;
     applyKind(filePath);
@@ -1741,7 +2077,14 @@
       case 'format': return runFormatCommand(arg);
       case 'preview-format': return applyPreviewFormat(arg);
       case 'folder-action': return runFolderAction(arg);
-      case 'request-close': return bridge.respondToClose(await confirmDiscard());
+      case 'find':
+        if (arg === 'open' || arg === 'replace') return openFind(arg === 'replace');
+        return findNext(arg === 'previous');
+      case 'request-close': {
+        const proceed = await confirmDiscard();
+        if (proceed) await flushRecovery(); // "Don't Save": the text stays recoverable
+        return bridge.respondToClose(proceed);
+      }
       default: return undefined;
     }
   });
@@ -2207,4 +2550,6 @@ flowchart LR
 `;
   // The welcome text counts as "unchanged", so closing right away won't prompt.
   loadDocument(null, welcome);
+  // Unsaved text left over from an earlier session (see "Recovering unsaved text").
+  bridge.listRecovery?.().then(showRecoveryBar).catch(console.error);
 })();

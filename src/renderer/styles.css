@@ -12,6 +12,11 @@
   --btn-hover: #eef0f3;
   --switch-off: #c9ced6;
   --flash-bg: rgba(255, 190, 0, 0.45); /* editor highlight after a preview format command */
+  --notice-bg: #fff4d6; /* recovery bar */
+  --find-match: rgba(245, 159, 0, 0.28); /* find: every match / the current one */
+  --find-current: rgba(245, 159, 0, 0.75);
+  --danger-text: #c92a2a;
+  --notice-border: #f0d68c;
   --editor-header-bg: #f8efcc; /* muted yellow: tells the editor apart from the preview */
   --editor-header-border: #e9dcaa;
   --preview-header-bg: #e2effa; /* muted sky blue for the preview */
@@ -41,6 +46,11 @@
   --btn-hover: #34373d;
   --switch-off: #4a4e56;
   --flash-bg: rgba(255, 200, 60, 0.35);
+  --notice-bg: #3a3220;
+  --find-match: rgba(245, 159, 0, 0.3);
+  --find-current: rgba(245, 159, 0, 0.7);
+  --danger-text: #ff8787;
+  --notice-border: #5c4c22;
   --editor-header-bg: #38331f;
   --editor-header-border: #4a4329;
   --preview-header-bg: #1e3040;
@@ -67,6 +77,30 @@ body {
   font-family: var(--font-ui);
   font-size: 14px;
   overflow: hidden;
+}
+
+/* ---------- Recovery bar (unsaved text from an earlier session) ---------- */
+.recovery-bar {
+  flex: 0 0 auto;
+  padding: 8px 16px 10px;
+  background: var(--notice-bg);
+  border-bottom: 1px solid var(--notice-border);
+  font-size: 13px;
+}
+.recovery-bar[hidden] { display: none; }
+.recovery-head { display: flex; align-items: center; gap: 4px; }
+.recovery-note { color: var(--text-muted); }
+.recovery-hide { margin-left: auto; }
+.recovery-list { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.recovery-list li { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.recovery-name { font-weight: 600; white-space: nowrap; }
+.recovery-meta {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
 }
 
 /* ---------- Global header ---------- */
@@ -416,7 +450,7 @@ body {
 
 /* .editor-mirror must lay text out exactly like .editor: it measures where each source line
    sits (including soft wraps) for synchronized scrolling. */
-.editor, .editor-mirror, .editor-flash {
+.editor, .editor-mirror, .editor-flash, .editor-find {
   padding: 20px 24px;
   font-family: var(--font-mono);
   font-size: 13.5px;
@@ -615,6 +649,66 @@ body {
   0%, 45% { background: var(--flash-bg); box-shadow: 0 0 0 2px var(--flash-bg); }
   100% { background: transparent; box-shadow: 0 0 0 2px transparent; }
 }
+
+/* ---------- Find & Replace bar (above the editor) and its match highlights ---------- */
+.find-bar {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+}
+.find-bar[hidden], .find-row[hidden], .editor-find[hidden] { display: none; }
+.find-row { display: flex; align-items: center; gap: 4px; }
+#replace-row { padding-left: 28px; } /* line up with the find field */
+.find-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+.find-input:focus { border-color: var(--accent); }
+.find-count { flex: 0 0 auto; min-width: 64px; text-align: right; font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+.find-count.is-none { color: var(--danger-text); }
+.find-btn {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted);
+  font: 600 12px var(--font-ui);
+  cursor: pointer;
+}
+.find-btn:hover { background: var(--btn-hover); color: var(--text); }
+.find-btn svg { width: 12px; height: 12px; }
+.find-opt[aria-pressed="true"] { background: var(--accent); color: var(--accent-contrast); }
+#find-toggle-replace svg { transition: transform 0.12s ease; }
+#find-toggle-replace[aria-expanded="true"] svg { transform: rotate(90deg); }
+.find-action { flex: 0 0 auto; height: 24px; padding: 0 10px; font-size: 12px; }
+.editor-find {
+  position: absolute;
+  overflow: hidden;
+  pointer-events: none;
+  color: transparent;
+  box-sizing: border-box;
+}
+.editor-find mark { color: transparent; background: var(--find-match); border-radius: 2px; }
+.editor-find mark.is-current { background: var(--find-current); }
 
 /* Markdown & text previews are editable (renderer.js, "Editing in the preview"). */
 .preview[contenteditable="true"] { outline: none; caret-color: var(--accent); }

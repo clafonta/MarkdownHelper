@@ -90,6 +90,12 @@ test('tables come out aligned, with escaped pipes and column alignment', () => {
   assert.equal(md(table), '| Name   |     n |\n| :----- | ----: |\n| a \\| b | **1** |');
 });
 
+test('a list Chromium put inside a paragraph is still a list', () => {
+  const p = h('p', null, h('ul', null, h('li', null, 'Apples'), h('li', null, 'Pears')));
+  assert.equal(md(p), '- Apples\n- Pears');
+  assert.equal(md(h('p', null, 'Intro', h('ol', null, h('li', null, 'one')))), 'Intro\n\n1. one');
+});
+
 test('rawOf passes non-editable blocks (diagrams, HTML) through unchanged', () => {
   const diagram = h('div', { class: 'mermaid-diagram' }, h('img', { src: 'data:...' }));
   const out = blocksToMarkdown([h('p', null, 'a'), diagram], { rawOf: (n) => (n === diagram ? '```mermaid\nA-->B\n```' : undefined) });
