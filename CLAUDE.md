@@ -1,7 +1,7 @@
 # Markdown Helper – notes for Claude
 
 Lightweight two-pane Markdown editor for macOS built on Electron (plain HTML/CSS/JS, no framework,
-no bundler). Left pane: raw Markdown + a "Help!" menu button (text tools). Right pane: live preview + sync-scroll toggle
+no bundler). Left pane: raw Markdown + an "Edit" menu button (formatting + text tools; same menu on right-click). Right pane: live preview + sync-scroll toggle
 + Copy. Optional left-most file sidebar (only while a folder is open: `mdh somefolder`, File → Open
 Folder…, or dropping a folder) listing all the folder's files, unsupported ones greyed out.
 Opens Markdown, text, HTML, CSV/TSV, JSON, SVG and common code/config files (list in
@@ -39,13 +39,25 @@ dark mode toggle (right).
   - `data-preview.js` – pure CSV/TSV parsing and JSON pretty-print/error location (window.DataPreview)
   - `mermaid-render.js` – Mermaid: lazy-loads `../vendor/mermaid.min.js`, renders one diagram at a
     time, caches by theme + source, SVG→PNG for Copy (window.MermaidRender; DOM-dependent)
+  - `html-to-markdown.js` – preview DOM → Markdown (`blocksToMarkdown`) and `patchSource`
+    (3-way: keep the user's own Markdown where an edit didn't touch it) (window.HtmlToMarkdown)
+  - `undo-history.js` – app-owned undo/redo snapshots shared by both panes (window.UndoHistory)
+  - `text-diff.js` – `changedRanges(old, new)`: what a format command added, minus whitespace/dash
+    padding, for the editor highlight (window.TextDiff)
   - `export-html.js` – clean semantic HTML for "Copy" (no fonts/sizes/colors) (window.ExportHtml; DOM-dependent)
   - `renderer.js` – UI wiring: rendering, document state, toolbar, sync scroll, theme, folder sidebar
 - `build/` – icon + DMG background SVG sources **and** their generated PNG/ICNS (committed on
-  purpose: electron-builder reads them directly).
+  purpose: electron-builder reads them directly). `icon.svg` is the brand kit's final icon
+  (`brand/Final.dc.html`, "08 — Focus · G3", 64-unit grid, same art at every size) placed on the
+  macOS grid (824px tile on 1024). The brand kit is re-exported over time: check `canvas.json`
+  for new boards and use the newest final/selected one. Its ".md" is JetBrains Mono Bold converted to outlines (no font needed to
+  render). After changing it: `npm run assets`, then `node scripts/brand-dev-electron.js`.
 - `scripts/make-assets.js` – rasterizes SVGs with Electron's Chromium + `iconutil`.
 - `scripts/brand-dev-electron.js` – renames dev `node_modules/electron/dist/Electron.app` to
-  "Markdown Helper" + our icon and re-signs ad hoc (otherwise menu bar says "Electron").
+  `Markdown Helper.app` (the Dock's hover label is the bundle's file name) and points
+  `node_modules/electron/path.txt` at it, sets the Info.plist names (menu bar), copies our icon,
+  re-signs ad hoc. Electron's installer then sees path.txt as changed, so `npm install`
+  re-extracts a stock Electron.app; postinstall re-brands it. Restart `npm start` after it runs.
 - `scripts/vendor.js` – copies `node_modules/mermaid/dist/mermaid.min.js` (+ license) into
   `src/vendor/` (git-ignored) on postinstall / prestart / predist. mermaid is a **devDependency on
   purpose**: as a dependency electron-builder would pack its ~200 MB dependency tree into the app.
@@ -56,12 +68,48 @@ dark mode toggle (right).
 
 - Pure logic goes in UMD-style modules (`module.exports` in Node, `window.X` in the browser) so it
   can be unit-tested in Node; add tests in `test/` for any new transform.
-- Editor edits must go through `replaceRange()` in renderer.js (execCommand `insertText` on the
-  minimal changed span) so Cmd+Z/redo work. Replacing the whole textarea value breaks Chromium redo.
-- Text tools live in the native **Help!** menu, one flat list (button `#btn-format`,
-  `formatMenuTemplate` in main.js, popped up via
-  `showFormatMenu`; picks come back as the `format` command → `FORMAT_COMMANDS` in renderer.js).
-  New tool = transform in tools.js + test, a menu item, and a `FORMAT_COMMANDS` entry.
+- Editor edits go through `replaceRange()` in renderer.js (execCommand `insertText` on the minimal
+  changed span). Undo/redo is **not** Chromium's: Edit → Undo/Redo are custom menu items
+  (`menu:undo`/`menu:redo`) driving `undo-history.js`; every change must be `history.record`ed
+  (editor `input` does it; preview sync does it). Chromium's page-wide native stack can't be used:
+  preview edits write the textarea programmatically and replaying old textarea steps corrupts text.
+  `beforeinput` historyUndo/Redo is intercepted as a backstop.
+- Editable preview (markdown/text kinds, `#preview` contenteditable): native DOM editing; on
+  `input`, `syncFromPreview` finds changed top-level groups (elements tagged `data-block` = marked
+  token index; untagged/new nodes join the previous block), converts only those with
+  `blocksToMarkdown`, `patchSource`s them into the token's source, and writes the textarea with
+  `setRangeText` (no focus change). The preview is not re-rendered while edited (caret); it is on
+  editor focus/input. Mermaid and raw-HTML tokens are `contenteditable=false` and pass through via
+  `rawOf`. A plain Save doesn't re-render the preview.
+- Preview formatting (shortcuts + right-click menu `previewMenuTemplate` in main.js → `preview-format`
+  command → `applyPreviewFormat` in renderer.js): execCommand for inline styles, headings, quote and
+  lists; code blocks and un-`code` are direct DOM changes (`replaceBlock`/`toggleInlineCode`) that
+  call `syncFromPreview` themselves (formatBlock can't turn a `<pre>` back into anything). Format
+  commands set `teachPending` → `flashEditorRanges(changedRanges(...))` highlights the added
+  Markdown (`.editor-flash`, laid out like `.editor-mirror`). In a table cell the menu is the
+  table variant (`state.table`); `tableCommand()` edits rows/cells directly and syncs; Tab moves
+  between cells. `previewFormatState()` feeds the menu's checkmarks. Never let a
+  `closest()` from the selection escape `#preview`. The editor's own Cmd+B/I is `toggleEmphasis`.
+- Editor formatting and text tools live in the native **Edit** menu (button `#btn-format` and
+  right-click in the editor; `formatMenuTemplate` in main.js, popped up via `showFormatMenu` with
+  `editorFormatState()` for checkmarks; picks come back as the `format` command →
+  `FORMAT_COMMANDS` in renderer.js). Its formatting/table items are shared with the preview's
+  menu (`formattingItems`), but editor commands edit the Markdown text through pure tools.js
+  functions (`toggleInline`, `setBlockType`, `tableEdit`, + `inlineStylesAt`/`blockTypeAt`/
+  `tableAt` for state) and `applyEdit` → `replaceRange`. New tool = transform in tools.js + test,
+  a menu item, and a `FORMAT_COMMANDS` entry.
+- Folder sidebar right-click: `folderMenuTemplate` in main → `folder-action` → `runFolderAction`
+  in renderer.js. Names are typed inline (`nameField`; `treeEditing` blocks tree refreshes while
+  it's open). File ops are `entry:*` IPC handlers in main; every path goes through
+  `inOpenFolder()` (main tracks each window's folder in `folderRoots`), names through
+  `checkName()`. Rename/trash of the open document's file (or a parent folder) updates
+  `doc.filePath` (`movedOnDisk`; trashed → Untitled, dirty). Electron 45 `clipboard.writeText` is
+  async.
+- Typing in the editor (Markdown/text): Enter → `continueList`, Tab/Shift+Tab → `indentLines`
+  (tools.js, pure, tested in test/list-typing.test.js), applied with `applyEdit` (one undo step).
+  They return null where the key should do its normal thing. Both renumber numbered lists
+  (`renumberList`, which returns a position `map` for the cursor). Skip while `e.isComposing` (IME).
+  In other kinds Tab only indents/outdents (no list logic: YAML `- x` isn't a Markdown list).
 - Tools use `applyTool(transform, { wholeLines })`: selection if any, else whole document. The
   transform is called as `transform(text, { wholeDocument })`.
 - Text tools must leave Markdown structure alone (tables, lists, fenced/indented code, headings).
@@ -103,7 +151,7 @@ dark mode toggle (right).
 - Don't use `webContents.isLoading()` to decide whether a window can take an IPC message: it's
   also true while a sub-frame (the HTML preview iframe) loads. main tracks `loadedWindows` instead.
 - A `<textarea>` stops painting its selection when it loses focus. Buttons that act on the
-  selection (Help!) must not take focus: `mousedown` → `preventDefault()`, and `editor.focus()`
+  selection (Edit) must not take focus: `mousedown` → `preventDefault()`, and `editor.focus()`
   before opening the menu.
 - Sticky `<thead>` needs `border-collapse: separate` (`.data-table`); with collapsed borders
   Chromium lets scrolled rows show through the header's top edge.

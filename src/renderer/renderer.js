@@ -17,8 +17,7 @@
   function render() {
     renderQueued = false;
     const source = editor.value;
-    const words = source.trim() ? source.trim().split(/\s+/).length : 0;
-    stats.textContent = `${words} words · ${source.length} chars`;
+    updateStats(source);
     switch (kind) {
       case 'html': return scheduleHtmlRender(source);
       case 'code': return undefined; // no preview
@@ -34,6 +33,12 @@
     return undefined;
   }
 
+  function updateStats(source) {
+    if (kind === 'csv' || kind === 'tsv') return; // renderTable shows rows · columns instead
+    const words = source.trim() ? source.trim().split(/\s+/).length : 0;
+    stats.textContent = `${words} words · ${source.length} chars`;
+  }
+
   /**
    * Renders block by block so every top-level preview element can be tagged with the source
    * line it came from (data-line). Synchronized scrolling uses those tags as anchors.
@@ -44,21 +49,37 @@
     const fragment = document.createDocumentFragment();
     const previous = [...preview.querySelectorAll('.mermaid-diagram')];
     let diagrams = 0;
+    resetPreviewBlocks(tokens);
     tokens.forEach((token, i) => {
       if (token.type === 'space') return;
       if (token.type === 'code' && /^mermaid\b/i.test((token.lang || '').trim())) {
-        fragment.append(mermaidBlock(token.text, startLines[i], previous[diagrams]));
+        const block = mermaidBlock(token.text, startLines[i], previous[diagrams]);
+        block.dataset.block = String(i);
+        fragment.append(block);
+        lockPreviewBlock(i, [block]);
         diagrams += 1;
         return;
       }
-      const single = [token];
-      single.links = tokens.links; // reference-style links are defined document-wide
-      const html = DOMPurify.sanitize(marked.parser(single), { RETURN_DOM_FRAGMENT: true });
-      for (const el of html.children) el.dataset.line = String(startLines[i]);
+      const html = DOMPurify.sanitize(marked.parser(tokenList(token, tokens.links)), { RETURN_DOM_FRAGMENT: true });
+      for (const el of html.children) {
+        el.dataset.line = String(startLines[i]);
+        el.dataset.block = String(i); // which token it came from, for editing in the preview
+      }
+      // Raw HTML can't be edited as Markdown: it stays as written (but can be deleted).
+      if (token.type === 'html') lockPreviewBlock(i, [...html.childNodes]);
+      for (const box of html.querySelectorAll('input[type="checkbox"]')) box.disabled = false; // tickable
       fragment.append(html);
     });
     preview.replaceChildren(fragment);
+    previewRendered();
     if (diagrams) drawPendingDiagrams();
+  }
+
+  /** A one-token list for marked.parser(); reference-style links are defined document-wide. */
+  function tokenList(token, links) {
+    const list = [token];
+    list.links = links;
+    return list;
   }
 
   // ---------- Mermaid diagrams (```mermaid blocks, and .mmd / .mermaid files) ----------
@@ -90,6 +111,7 @@
   function mermaidBlock(source, line, previous) {
     const block = make('div', 'mermaid-diagram');
     block.dataset.line = String(line);
+    block.contentEditable = 'false';
     mermaidSources.set(block, source);
     const done = window.MermaidRender.cached(source, previewTheme());
     if (done) {
@@ -372,6 +394,699 @@
     svgImage.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(source)}`;
   }
 
+  // ---------- Editing in the preview (Markdown & text) ----------
+  // The preview is contenteditable. Chromium edits its DOM natively (typing, Enter, Delete,
+  // Cmd+Z in the preview, Cmd+B/I via execCommand). After each edit, only the top-level blocks
+  // that changed are turned back into Markdown (html-to-markdown.js) and spliced into the
+  // source, so every block that wasn't touched keeps its exact original text.
+  //
+  // Every top-level element carries data-block = index of the marked token it came from.
+  // Elements Chromium creates (Enter splits a paragraph) copy that attribute or have none;
+  // either way they belong to the block before them. The preview isn't re-rendered while it's
+  // being edited (that would lose the caret and the preview's undo history); it's re-rendered
+  // from the source when the editor is used again.
+  const { blocksToMarkdown, patchSource } = window.HtmlToMarkdown;
+  // Per token: body = its current Markdown, trail = the newlines that belong to it (a code block
+  // owns one), raw = body + trail ('' once deleted), canon = canonical Markdown of what it
+  // renders to now; body0 / canon0 = the same as first rendered.
+  let previewBlocks = [];
+  let previewLinks = {};
+  let leadBlock = null; // text typed before the first block (e.g. into an empty document)
+  let lockedNodes = new WeakMap(); // non-editable node (diagram, raw HTML) → token index
+  let lastGroups = new Map();
+  let previewEdited = false; // preview DOM was edited since it was last rendered
+  document.execCommand('defaultParagraphSeparator', false, 'p'); // Enter makes <p>, not <div>
+  const previewObserver = new MutationObserver(() => {});
+  previewObserver.observe(preview, { subtree: true, childList: true, characterData: true });
+
+  const isPreviewEditable = () => kind === 'markdown' || kind === 'text';
+
+  function resetPreviewBlocks(tokens) {
+    previewLinks = tokens.links;
+    previewBlocks = tokens.map((token) => {
+      const body = token.raw.replace(/\s+$/, '');
+      const bullet = token.type === 'list' ? (token.raw.match(/^\s*([-*+])\s/) || [])[1] : undefined;
+      return { token, raw: token.raw, body, body0: body, trail: token.raw.slice(body.length), editable: true, bullet };
+    });
+    leadBlock = { raw: '', body: '', body0: '', trail: '', editable: true, canon0: '', canon: '' };
+    lockedNodes = new WeakMap();
+  }
+
+  function lockPreviewBlock(index, nodes) {
+    previewBlocks[index].editable = false;
+    for (const node of nodes) {
+      if (node.nodeType === 1) node.contentEditable = 'false';
+      lockedNodes.set(node, index);
+    }
+  }
+
+  function previewRendered() {
+    previewObserver.takeRecords(); // our own rendering isn't an edit
+    lastGroups = groupPreviewNodes().groups;
+    previewEdited = false;
+  }
+
+  /** Top-level preview nodes by the token they belong to (-1: before the first block). */
+  function groupPreviewNodes() {
+    const groups = new Map();
+    const owner = new Map();
+    let current = -1;
+    for (const node of preview.childNodes) {
+      if (node.nodeType === 3 && !node.nodeValue.trim()) continue;
+      if (node.nodeType !== 1 && node.nodeType !== 3) continue;
+      const index = node.nodeType === 1 && node.dataset.block !== undefined ? Number(node.dataset.block) : NaN;
+      if (index > current) current = index; // copied attributes that go backwards don't count
+      if (!groups.has(current)) groups.set(current, []);
+      groups.get(current).push(node);
+      owner.set(node, current);
+    }
+    return { groups, owner };
+  }
+
+  const blockInfo = (index) => (index === -1 ? leadBlock : previewBlocks[index]);
+
+  /** Canonical Markdown of a token as rendered (what html-to-markdown makes of it). */
+  function canonOf(info) {
+    if (info.canon === undefined) {
+      if (!info.editable) info.canon = info.body0;
+      else {
+        const html = DOMPurify.sanitize(marked.parser(tokenList(info.token, previewLinks)), { RETURN_DOM_FRAGMENT: true });
+        info.canon = blocksToMarkdown(html.childNodes, { bullet: info.bullet });
+      }
+      info.canon0 = info.canon;
+    }
+    return info.canon;
+  }
+
+  function updateBlock(index, nodes) {
+    const info = blockInfo(index);
+    if (!info) return;
+    const emitted = new Set();
+    // Diagrams and raw HTML: their original source, once per block (or '' for the rest).
+    const rawOf = (node) => {
+      if (!lockedNodes.has(node)) return undefined;
+      const owner = lockedNodes.get(node);
+      if (emitted.has(owner)) return '';
+      emitted.add(owner);
+      return previewBlocks[owner].body0;
+    };
+    const markdown = nodes.length ? blocksToMarkdown(nodes, { rawOf, bullet: info.bullet }) : '';
+    const before = canonOf(info);
+    let body;
+    if (!markdown) body = '';
+    else if (markdown === info.canon0) body = info.body0; // back to how it was (e.g. undo)
+    else body = patchSource(info.body, before, markdown);
+    info.body = body;
+    info.canon = markdown;
+    info.removed = !body && !!info.body0;
+    const trail = index === -1 && previewBlocks.length ? '\n\n' : info.trail;
+    info.raw = body ? body + trail : '';
+  }
+
+  function assembleSource() {
+    let out = leadBlock.raw;
+    let skipSpace = false;
+    for (const b of previewBlocks) {
+      if (b.token.type === 'space') {
+        if (!skipSpace) out += b.raw; // a deleted block takes its blank line with it
+        skipSpace = false;
+        continue;
+      }
+      out += b.raw;
+      skipSpace = !!b.removed;
+    }
+    return out;
+  }
+
+  /** Writes the source without moving focus out of the preview (and without an undo step). */
+  function writeEditorQuietly(text) {
+    const old = editor.value;
+    if (old === text) return;
+    let start = 0;
+    const max = Math.min(old.length, text.length);
+    while (start < max && old[start] === text[start]) start += 1;
+    let tail = 0;
+    while (tail < max - start && old[old.length - 1 - tail] === text[text.length - 1 - tail]) tail += 1;
+    editor.setRangeText(text.slice(start, text.length - tail), start, old.length - tail, 'preserve');
+    if (flashNextChange) {
+      flashNextChange = false;
+      // What was added, minus table re-padding (text-diff.js); a pure removal shows its line.
+      flashEditorRanges(window.TextDiff.changedRanges(old, text), start);
+    }
+  }
+
+  /** Keeps data-line (sync scroll) roughly right while the preview is being edited. */
+  function retagPreviewLines(groups) {
+    let line = (leadBlock.raw.match(/\n/g) || []).length;
+    const starts = previewBlocks.map((b) => {
+      const start = line;
+      line += (b.raw.match(/\n/g) || []).length;
+      return start;
+    });
+    for (const [index, nodes] of groups) {
+      for (const node of nodes) {
+        if (node.nodeType === 1) node.dataset.line = String(index === -1 ? 0 : starts[index]);
+      }
+    }
+  }
+
+  function syncFromPreview(target, inputType) {
+    if (!isPreviewEditable()) return;
+    const records = previewObserver.takeRecords();
+    const { groups, owner } = groupPreviewNodes();
+    const dirty = new Set();
+    const topOf = (node) => {
+      let n = node;
+      while (n && n.parentNode !== preview) n = n.parentNode;
+      return n;
+    };
+    for (const node of [...records.map((r) => r.target), target]) {
+      const top = node && node !== preview ? topOf(node) : null;
+      if (top && owner.has(top)) dirty.add(owner.get(top));
+    }
+    for (const index of new Set([...groups.keys(), ...lastGroups.keys()])) {
+      const now = groups.get(index) || [];
+      const was = lastGroups.get(index) || [];
+      if (now.length !== was.length || now.some((n, i) => n !== was[i])) dirty.add(index);
+    }
+    lastGroups = groups;
+    if (!dirty.size) return;
+    for (const index of dirty) updateBlock(index, groups.get(index) || []);
+    previewEdited = true;
+    flashNextChange = teachPending;
+    teachPending = false;
+    writeEditorQuietly(assembleSource());
+    history.record(editor.value, editorSelection(), inputGroup('preview', inputType));
+    retagPreviewLines(groups);
+    updateStats(editor.value);
+    updateDirty();
+    invalidateScrollMap();
+  }
+
+  preview.addEventListener('input', (e) => syncFromPreview(e.target, e.inputType));
+  // Task-list checkboxes can be ticked in the preview.
+  preview.addEventListener('change', (e) => {
+    if (!e.target.matches?.('input[type="checkbox"]')) return;
+    e.target.toggleAttribute('checked', e.target.checked); // Copy clones attributes, not state
+    syncFromPreview(e.target);
+  });
+
+  // ---------- Formatting in the preview: shortcuts and the right-click menu ----------
+  // Formats are applied to the preview DOM with execCommand (the input event then updates the
+  // source like any edit). The Markdown that changed lights up in the editor ("teaching" flash),
+  // so people who don't know Markdown see what e.g. bold looks like there.
+  let teachPending = false; // the next preview sync came from a format command: flash it
+  let flashNextChange = false;
+  let applyingFormat = false; // our own commands may use input types we otherwise block
+
+  const PREVIEW_SHORTCUTS = { b: 'bold', i: 'italic', e: 'code', 'shift+x': 'strike' };
+  preview.addEventListener('keydown', (e) => {
+    if (!isPreviewEditable() || !e.metaKey || e.ctrlKey || e.altKey) return;
+    const key = (e.shiftKey ? 'shift+' : '') + e.key.toLowerCase();
+    if (PREVIEW_SHORTCUTS[key]) {
+      e.preventDefault();
+      applyPreviewFormat(PREVIEW_SHORTCUTS[key]);
+    } else if (key === 'u') {
+      e.preventDefault(); // Markdown has no underline
+    }
+  });
+
+  /** The element the cursor / selection start is in. */
+  function selectionElement() {
+    const node = getSelection().anchorNode;
+    if (!node || !preview.contains(node)) return null;
+    return node.nodeType === 1 ? node : node.parentElement;
+  }
+
+  /** What the right-click menu shows as checked. */
+  function previewFormatState() {
+    const el = selectionElement();
+    if (!el || !el.isContentEditable) return { editable: false };
+    const inPre = !!el.closest('pre');
+    const heading = el.closest('h1, h2, h3, h4, h5, h6');
+    const li = el.closest('li');
+    let block = 'p';
+    if (inPre) block = 'pre';
+    else if (heading) block = heading.tagName.toLowerCase().replace(/^h[4-6]$/, 'h3');
+    else if (li) block = li.parentElement.tagName === 'OL' ? 'ol' : 'ul';
+    else if (el.closest('blockquote')) block = 'blockquote';
+    const cell = el.closest('td, th');
+    let table = null;
+    if (cell && preview.contains(cell)) {
+      const head = cell.closest('table').rows[0];
+      table = { align: head.cells[cell.cellIndex]?.getAttribute('align') || '', header: cell.parentElement === head };
+    }
+    return {
+      editable: true,
+      bold: document.queryCommandState('bold'),
+      italic: document.queryCommandState('italic'),
+      strike: document.queryCommandState('strikeThrough'),
+      code: !inPre && !!el.closest('code'),
+      block,
+      table,
+    };
+  }
+
+  // ---------- Table editing (right-click menu inside a table, Tab between cells) ----------
+  // The table in the preview is changed directly; syncFromPreview then rewrites the Markdown
+  // table (always aligned, see html-to-markdown.js). Column alignment = the align attribute
+  // marked puts on every cell of the column.
+
+  function cellAtCursor() {
+    const cell = selectionElement()?.closest('td, th');
+    return cell && preview.contains(cell) && cell.isContentEditable ? cell : null;
+  }
+
+  function putCaretIn(node, atEnd = true) {
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    range.collapse(!atEnd);
+    getSelection().removeAllRanges();
+    getSelection().addRange(range);
+  }
+
+  function emptyCell(tag, align) {
+    const cell = make(tag);
+    if (align) cell.setAttribute('align', align);
+    cell.append(make('br')); // keeps an empty cell clickable; written as an empty Markdown cell
+    return cell;
+  }
+
+  /** A copy of `row` with every cell turned into `tag` (th for the header, td for the body). */
+  function retagRow(row, tag) {
+    const tr = make('tr');
+    for (const old of row.cells) {
+      const cell = make(tag);
+      if (old.getAttribute('align')) cell.setAttribute('align', old.getAttribute('align'));
+      cell.append(...old.childNodes);
+      tr.append(cell);
+    }
+    return tr;
+  }
+
+  function tableCommand(command) {
+    const cell = cellAtCursor();
+    if (!cell) return;
+    const table = cell.closest('table');
+    const rows = [...table.rows];
+    const row = cell.parentElement;
+    const r = rows.indexOf(row);
+    const c = cell.cellIndex;
+    const columns = Math.max(...rows.map((tr) => tr.cells.length));
+    const head = table.tHead || table.createTHead();
+    const body = table.tBodies[0] || table.appendChild(make('tbody'));
+    const alignOf = (i) => rows[0].cells[i]?.getAttribute('align') || '';
+    const newRow = (tag) => {
+      const tr = make('tr');
+      for (let i = 0; i < columns; i += 1) tr.append(emptyCell(tag, alignOf(i)));
+      return tr;
+    };
+    let focus = null;
+    let target = table;
+
+    switch (command) {
+      case 'table-row-above':
+        if (r === 0) { // a new header; the old one becomes the first body row
+          const tr = newRow('th');
+          body.prepend(retagRow(row, 'td'));
+          head.replaceChildren(tr);
+          focus = tr.cells[c];
+        } else {
+          const tr = newRow('td');
+          row.before(tr);
+          focus = tr.cells[c];
+        }
+        break;
+      case 'table-row-below': {
+        const tr = newRow('td');
+        if (r === 0) body.prepend(tr); else row.after(tr);
+        focus = tr.cells[c];
+        break;
+      }
+      case 'table-col-left':
+      case 'table-col-right':
+        for (const tr of rows) {
+          const added = emptyCell(tr.parentElement === head ? 'th' : 'td', '');
+          const ref = tr.cells[c];
+          if (!ref) tr.append(added);
+          else if (command === 'table-col-left') ref.before(added);
+          else ref.after(added);
+          if (tr === row) focus = added;
+        }
+        break;
+      case 'table-delete-row':
+        if (rows.length === 1) {
+          target = preview;
+          table.remove();
+        } else if (r === 0) { // the next row becomes the header
+          const promoted = retagRow(rows[1], 'th');
+          rows[1].remove();
+          head.replaceChildren(promoted);
+          focus = promoted.cells[Math.min(c, promoted.cells.length - 1)];
+        } else {
+          const next = rows[r + 1] || rows[r - 1];
+          row.remove();
+          focus = next.cells[Math.min(c, next.cells.length - 1)];
+        }
+        break;
+      case 'table-delete-col':
+        if (columns <= 1) {
+          target = preview;
+          table.remove();
+        } else {
+          for (const tr of rows) tr.cells[c]?.remove();
+          focus = row.cells[Math.min(c, row.cells.length - 1)];
+        }
+        break;
+      case 'table-delete':
+        target = preview;
+        table.remove();
+        break;
+      case 'table-align-left':
+      case 'table-align-center':
+      case 'table-align-right': {
+        const want = command.slice('table-align-'.length);
+        const align = alignOf(c) === want ? '' : want; // picking the current one again: no alignment
+        for (const tr of rows) {
+          const td = tr.cells[c];
+          if (!td) continue;
+          if (align) td.setAttribute('align', align); else td.removeAttribute('align');
+        }
+        break;
+      }
+      default:
+        return;
+    }
+    if (focus) putCaretIn(focus);
+    else if (target === preview) preview.focus();
+    syncFromPreview(target, 'formatTable'); // direct DOM changes: no input event
+  }
+
+  // Tab / Shift+Tab move between cells; Tab in the last cell adds a row.
+  preview.addEventListener('keydown', (e) => {
+    if (e.key !== 'Tab' || e.metaKey || e.ctrlKey || e.altKey || !isPreviewEditable()) return;
+    const cell = cellAtCursor();
+    if (!cell) return;
+    e.preventDefault();
+    const cells = [...cell.closest('table').querySelectorAll('th, td')];
+    const next = cells[cells.indexOf(cell) + (e.shiftKey ? -1 : 1)];
+    if (next) putCaretIn(next);
+    else if (!e.shiftKey) applyPreviewFormat('table-row-below');
+  });
+
+  const escapeHtml = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  function toggleInlineCode() {
+    const el = selectionElement();
+    const code = el?.closest('code');
+    const sel = getSelection();
+    if (code && !code.closest('pre')) {
+      // Unwrap directly: execCommand re-creates the <code> around re-inserted text.
+      const text = document.createTextNode(code.textContent);
+      code.replaceWith(text);
+      const range = document.createRange();
+      range.selectNodeContents(text);
+      sel.removeAllRanges();
+      sel.addRange(range);
+      syncFromPreview(text, 'formatRemove'); // no input event for a direct DOM change
+    } else if (!sel.isCollapsed) {
+      document.execCommand('insertHTML', false, `<code>${escapeHtml(sel.toString().replace(/\s*\n\s*/g, ' '))}</code>`);
+    }
+  }
+
+  /** Replaces `old` with `nodes`, puts the cursor at the end of the first, syncs the source. */
+  function replaceBlock(old, nodes) {
+    old.replaceWith(...nodes);
+    const range = document.createRange();
+    range.selectNodeContents(nodes[0]);
+    range.collapse(false);
+    getSelection().removeAllRanges();
+    getSelection().addRange(range);
+    syncFromPreview(nodes[0], 'formatBlock'); // direct DOM change: no input event
+  }
+
+  // Code blocks are converted by hand: Chromium's formatBlock nests a <p> inside a <pre>
+  // instead of replacing it, and can't make <pre><code>.
+  function toCodeBlock() {
+    const blockAtCursor = () => {
+      const block = selectionElement()?.closest('p, h1, h2, h3, h4, h5, h6, div');
+      return block && block !== preview && preview.contains(block) ? block : null; // never leave the preview
+    };
+    // Text that isn't in a block (e.g. just taken out of a quote) gets one first.
+    if (!blockAtCursor()) document.execCommand('formatBlock', false, 'p');
+    const block = blockAtCursor();
+    if (!block) return;
+    const pre = make('pre');
+    pre.append(make('code', '', block.innerText.replace(/\n$/, '')));
+    replaceBlock(block, [pre]);
+  }
+
+  function fromCodeBlock(command) {
+    const pre = selectionElement()?.closest('pre');
+    if (!pre) return;
+    const lines = pre.innerText.replace(/^\n/, '').replace(/\n$/, '').split('\n').filter((l) => l.trim());
+    if (!lines.length) lines.push('');
+    const filled = (tag) => lines.map((line) => make(tag, '', line));
+    let nodes;
+    if (command === 'ul' || command === 'ol') {
+      nodes = [make(command)];
+      nodes[0].append(...filled('li'));
+    } else if (command === 'blockquote') {
+      nodes = [make('blockquote')];
+      nodes[0].append(...filled('p'));
+    } else {
+      nodes = filled(command === 'pre' ? 'p' : command); // Code Block again = back to text
+    }
+    replaceBlock(pre, nodes);
+  }
+
+  function applyPreviewFormat(command) {
+    if (!isPreviewEditable()) return;
+    const state = previewFormatState();
+    if (!state.editable) return;
+    preview.focus();
+    teachPending = true;
+    applyingFormat = true;
+    try {
+      if (command.startsWith('table-')) {
+        tableCommand(command);
+        return;
+      }
+      if (state.block === 'pre' && !['bold', 'italic', 'strike', 'code'].includes(command)) {
+        fromCodeBlock(command);
+        return;
+      }
+      switch (command) {
+        case 'bold': document.execCommand('bold'); break;
+        case 'italic': document.execCommand('italic'); break;
+        case 'strike': document.execCommand('strikeThrough'); break;
+        case 'code': toggleInlineCode(); break;
+        case 'ul': case 'ol': {
+          const listCommand = command === 'ul' ? 'insertUnorderedList' : 'insertOrderedList';
+          // Out of a quote / heading / code block first, so the list is a plain list.
+          if (state.block !== 'ul' && state.block !== 'ol' && state.block !== 'p') document.execCommand('formatBlock', false, 'p');
+          document.execCommand(listCommand);
+          break;
+        }
+        case 'pre':
+          if (state.block === 'ul' || state.block === 'ol') {
+            document.execCommand(state.block === 'ul' ? 'insertUnorderedList' : 'insertOrderedList');
+          } else if (state.block === 'blockquote') {
+            document.execCommand('outdent');
+          }
+          toCodeBlock();
+          break;
+        default: { // p, h1–h3, blockquote: picking the current one again turns it off
+          const off = state.block === command;
+          if (state.block === 'ul' || state.block === 'ol') {
+            document.execCommand(state.block === 'ul' ? 'insertUnorderedList' : 'insertOrderedList');
+          } else if (state.block === 'blockquote') {
+            document.execCommand('outdent'); // formatBlock can't take a paragraph out of a quote
+          }
+          if (off || command === 'p') {
+            if (state.block !== 'blockquote') document.execCommand('formatBlock', false, 'p');
+          } else {
+            document.execCommand('formatBlock', false, command);
+          }
+        }
+      }
+    } finally {
+      applyingFormat = false;
+      teachPending = false; // already used by the input event(s) above, if anything changed
+    }
+  }
+
+  preview.addEventListener('contextmenu', (e) => {
+    if (!isPreviewEditable() || !bridge.showPreviewMenu) return;
+    e.preventDefault();
+    // Nothing selected: right-clicking a word selects it, so Bold & co. apply to that word.
+    const sel = getSelection();
+    if (sel.isCollapsed || !preview.contains(sel.anchorNode)) {
+      const hit = document.caretRangeFromPoint(e.clientX, e.clientY);
+      if (hit && preview.contains(hit.startContainer)) {
+        sel.removeAllRanges();
+        sel.addRange(hit);
+        const node = hit.startContainer;
+        const around = node.nodeType === 3 ? node.nodeValue.slice(Math.max(0, hit.startOffset - 1), hit.startOffset + 1) : '';
+        if (/[\p{L}\p{N}]/u.test(around)) {
+          sel.modify('move', 'backward', 'word');
+          sel.modify('extend', 'forward', 'word');
+          // A word selection may include the space after it; leave that out.
+          const extra = sel.toString().match(/\s+$/)?.[0].length || 0;
+          for (let i = 0; i < extra; i += 1) sel.modify('extend', 'backward', 'character');
+        }
+      }
+    }
+    bridge.showPreviewMenu({ x: e.clientX, y: e.clientY, state: previewFormatState() });
+  });
+
+  // Formatting Markdown can't express isn't applied in the first place.
+  const PREVIEW_BLOCKED_INPUT = /^format(Underline|Superscript|Subscript|Justify|Indent|Outdent|FontColor|FontName|BackColor|SetBlockTextDirection|SetInlineTextDirection)/;
+  preview.addEventListener('beforeinput', (e) => {
+    if (isPreviewEditable() && !applyingFormat && PREVIEW_BLOCKED_INPUT.test(e.inputType)) e.preventDefault();
+  });
+
+  // The teaching flash: an overlay laid out exactly like the editor (same styles as
+  // .editor-mirror) with the changed text marked; it fades out on its own.
+  const flash = document.createElement('div');
+  flash.className = 'editor-flash';
+  flash.setAttribute('aria-hidden', 'true');
+  editor.parentElement.appendChild(flash);
+  let flashTimer = 0;
+
+  function flashEditorRanges(ranges, at) {
+    const text = editor.value;
+    if (!ranges.length) { // something was only removed: show the line it was on
+      const start = text.lastIndexOf('\n', at - 1) + 1;
+      const end = text.indexOf('\n', start);
+      ranges = [[start, end === -1 ? text.length : end]];
+    }
+    const parts = [];
+    let pos = 0;
+    for (const [start, end] of ranges) {
+      const mark = document.createElement('mark');
+      mark.textContent = text.slice(start, end) || ' ';
+      parts.push(text.slice(pos, start), mark);
+      pos = end;
+    }
+    parts.push(`${text.slice(pos)}\n`);
+    flash.replaceChildren(...parts);
+    const mark = flash.querySelector('mark');
+    Object.assign(flash.style, {
+      top: `${editor.offsetTop}px`,
+      left: `${editor.offsetLeft}px`,
+      width: `${editor.clientWidth}px`,
+      height: `${editor.clientHeight}px`,
+    });
+    flash.hidden = false;
+    // Make sure the change is in view in the editor.
+    const top = mark.offsetTop;
+    if (top < editor.scrollTop || top + mark.offsetHeight > editor.scrollTop + editor.clientHeight) {
+      echoTarget = editor; // don't drag the preview along
+      clearTimeout(echoTimer);
+      echoTimer = setTimeout(() => { echoTarget = null; }, 100);
+      editor.scrollTop = Math.max(0, top - editor.clientHeight / 3);
+    }
+    flash.scrollTop = editor.scrollTop;
+    clearTimeout(flashTimer);
+    flashTimer = setTimeout(() => { flash.hidden = true; flash.replaceChildren(); }, 2000);
+  }
+  editor.addEventListener('scroll', () => { if (!flash.hidden) flash.scrollTop = editor.scrollTop; });
+
+  // Paste plain text only: arbitrary styled HTML from elsewhere has no Markdown equivalent.
+  preview.addEventListener('paste', (e) => {
+    if (!isPreviewEditable()) return;
+    e.preventDefault();
+    const text = e.clipboardData?.getData('text/plain');
+    if (text) document.execCommand('insertText', false, text.replace(/\r\n?/g, '\n'));
+  });
+
+  // Clicking a link puts the cursor in it (it's editable); Cmd+click opens it.
+  preview.addEventListener('click', (e) => {
+    const a = e.target.closest?.('a[href]');
+    if (!a || !isPreviewEditable()) return;
+    e.preventDefault();
+    if (!e.metaKey) return;
+    const href = a.getAttribute('href');
+    if (href.startsWith('#')) preview.querySelector(`[id="${CSS.escape(decodeURIComponent(href.slice(1)))}"]`)?.scrollIntoView();
+    else if (/^https?:/i.test(a.href)) window.open(a.href);
+  });
+
+  // Back in the editor: redraw the preview from the source (Chromium's edited DOM is close to,
+  // but not exactly, what the Markdown renders to).
+  editor.addEventListener('focus', () => {
+    if (previewEdited) render();
+  });
+
+  // ---------- Undo / redo: one history for both panes (see undo-history.js) ----------
+  const history = window.UndoHistory.createHistory();
+  const editorSelection = () => [editor.selectionStart, editor.selectionEnd];
+  let toolEdit = false; // replaceRange() is running: a step of its own, never merged with typing
+  const INPUT_GROUPS = {
+    insertText: 'type',
+    deleteContentBackward: 'delete',
+    deleteContentForward: 'delete',
+    deleteWordBackward: 'delete',
+    deleteWordForward: 'delete',
+  };
+  const inputGroup = (pane, inputType) => (INPUT_GROUPS[inputType] ? `${pane}-${INPUT_GROUPS[inputType]}` : null);
+
+  editor.addEventListener('input', (e) => {
+    history.record(editor.value, editorSelection(), toolEdit ? null : inputGroup('editor', e.inputType));
+  });
+  // Moving the cursor ends a typing step, as in native text fields.
+  const NAV_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown', 'Enter']);
+  for (const pane of [editor, preview]) {
+    pane.addEventListener('mousedown', () => history.breakGroup());
+    pane.addEventListener('keydown', (e) => { if (NAV_KEYS.has(e.key)) history.breakGroup(); });
+  }
+
+  /** Puts the preview's cursor at the end of the block that shows source line `line`. */
+  function placePreviewCaret(line) {
+    let target = null;
+    for (const el of preview.querySelectorAll(':scope > [data-line]')) {
+      if (Number(el.dataset.line) <= line) target = el; else break;
+    }
+    preview.focus({ preventScroll: true });
+    if (!target || !target.isContentEditable) return;
+    const range = document.createRange();
+    range.selectNodeContents(target);
+    range.collapse(false);
+    getSelection().removeAllRanges();
+    getSelection().addRange(range);
+    target.scrollIntoView({ block: 'nearest' });
+  }
+
+  function applyHistory(state) {
+    if (!state) return;
+    const inPreview = isPreviewEditable() && preview.contains(document.activeElement);
+    const old = editor.value;
+    const { text } = state;
+    let start = 0;
+    const max = Math.min(old.length, text.length);
+    while (start < max && old[start] === text[start]) start += 1;
+    let tail = 0;
+    while (tail < max - start && old[old.length - 1 - tail] === text[text.length - 1 - tail]) tail += 1;
+    writeEditorQuietly(text);
+    render(); // the preview, redrawn from the restored source
+    updateDirty();
+    if (inPreview) {
+      placePreviewCaret(text.slice(0, start).split('\n').length - 1);
+    } else {
+      // Select what came back (or put the cursor where text went away), like native undo.
+      editor.focus();
+      editor.setSelectionRange(start, text.length - tail);
+    }
+  }
+  const undo = () => applyHistory(history.undo());
+  const redo = () => applyHistory(history.redo());
+  // Chromium's own undo (e.g. from a context menu) would replay steps that no longer fit.
+  document.addEventListener('beforeinput', (e) => {
+    if (e.inputType !== 'historyUndo' && e.inputType !== 'historyRedo') return;
+    e.preventDefault();
+    if (e.inputType === 'historyUndo') undo(); else redo();
+  }, true);
+
   function scheduleRender() {
     if (renderQueued) return;
     renderQueued = true;
@@ -412,6 +1127,8 @@
     preview.classList.remove('svg-broken');
 
     markdownTools = kind === 'markdown' || kind === 'text';
+    preview.contentEditable = markdownTools ? 'true' : 'false'; // see "Editing in the preview"
+    preview.spellcheck = false;
     caseMode = markdownTools ? 'markdown' : 'literal';
     // A single image has nothing to scroll in step with, and an image or code can't be pasted as text.
     syncToggle.disabled = kind === 'code' || kind === 'svg' || kind === 'mermaid';
@@ -683,13 +1400,37 @@
 
   // Tab indents instead of moving focus: a real tab where the format needs one (Makefile, Go, TSV)
   // or the file is already tab-indented, otherwise two spaces. Set per document in loadDocument().
+  // Tab / Shift+Tab on a Markdown list item nest it / bring it up a level, and with several lines
+  // selected indent / outdent them all. Enter continues a Markdown list or quote; on an empty
+  // item it ends the list (tools.js continueList / indentLines). Shift+Enter: a plain newline.
   let indentUnit = '  ';
   editor.addEventListener('keydown', (e) => {
-    if (e.key === 'Tab' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    if (e.isComposing) return; // (an input method is composing text)
+    const plainKey = !e.metaKey && !e.ctrlKey && !e.altKey;
+    if (e.key === 'Tab' && plainKey) {
       e.preventDefault();
-      document.execCommand('insertText', false, indentUnit);
+      const r = T.indentLines(editor.value, editor.selectionStart, editor.selectionEnd, indentUnit,
+        e.shiftKey, { lists: markdownTools });
+      if (r) applyEdit(r);
+      else if (!e.shiftKey) document.execCommand('insertText', false, indentUnit);
+      return;
+    }
+    if (e.key === 'Enter' && plainKey && !e.shiftKey && markdownTools) {
+      const r = T.continueList(editor.value, editor.selectionStart, editor.selectionEnd);
+      if (r) {
+        e.preventDefault();
+        applyEdit(r);
+      }
+      return;
+    }
+    // Same shortcuts as the preview (Markdown & text only): bold, italic, strikethrough, code.
+    const shortcut = EDITOR_SHORTCUTS[(e.shiftKey ? 'shift+' : '') + e.key.toLowerCase()];
+    if (e.metaKey && !e.ctrlKey && !e.altKey && shortcut && markdownTools) {
+      e.preventDefault();
+      runFormatCommand(shortcut);
     }
   });
+  const EDITOR_SHORTCUTS = { b: 'bold', i: 'italic', e: 'code', 'shift+x': 'strike' };
 
   // ---------- Theme ----------
   const THEME_KEY = 'markdown-helper:theme';
@@ -718,9 +1459,9 @@
     removeNewlines, formatTables, changeCase, cleanUpText, toTable,
   } = window.MarkdownTools;
 
-  // Replace text through execCommand so the change lands on the native undo stack (Cmd+Z works).
-  // Only the span that actually differs is replaced: Chromium's redo mangles large replacements
-  // whose start matches the original text, and a minimal edit also keeps undo granular.
+  // Replace text through execCommand, like typing: the textarea keeps its scroll position and
+  // fires a normal input event (which records the undo step, see "Undo / redo"). Only the span
+  // that actually differs is replaced, so the cursor and scroll position stay put.
   function replaceRange(start, end, text) {
     const original = editor.value.slice(start, end);
     if (original === text) return;
@@ -735,8 +1476,14 @@
     editor.focus();
     editor.setSelectionRange(start + prefix, end - suffix);
     const insert = text.slice(prefix, text.length - suffix);
-    if (insert) document.execCommand('insertText', false, insert);
-    else document.execCommand('delete');
+    toolEdit = true;
+    history.breakGroup();
+    try {
+      if (insert) document.execCommand('insertText', false, insert);
+      else document.execCommand('delete');
+    } finally {
+      toolEdit = false;
+    }
   }
 
   /**
@@ -778,7 +1525,44 @@
   // for everything else.
   const caseTool = (mode) => (text, opts) => changeCase(text, mode, { ...opts, markdown: caseMode !== 'literal' });
 
+  /** Applies a { text, start, end } result from tools.js to the editor (one undo step). */
+  function applyEdit(result) {
+    if (!result) return;
+    replaceRange(0, editor.value.length, result.text);
+    editor.setSelectionRange(result.start, result.end);
+    scheduleRender();
+  }
+  const T = window.MarkdownTools;
+  const inlineCommand = (style) => () => markdownTools
+    && applyEdit(T.toggleInline(editor.value, editor.selectionStart, editor.selectionEnd, style));
+  const blockCommand = (type) => () => markdownTools
+    && applyEdit(T.setBlockType(editor.value, editor.selectionStart, editor.selectionEnd, type));
+  const tableCommandAt = (command) => () => markdownTools
+    && applyEdit(T.tableEdit(editor.value, editor.selectionStart, command));
+
+  /** What the Markdown pane's menu shows as checked (see formatMenuTemplate in main.js). */
+  function editorFormatState() {
+    if (!markdownTools) return { markdownTools };
+    const { value, selectionStart: s, selectionEnd: e } = editor;
+    const block = T.blockTypeAt(value, s);
+    const table = block === 'table' ? T.tableAt(value, s) : null;
+    return {
+      markdownTools,
+      ...T.inlineStylesAt(value, s, e),
+      block,
+      table: table && { align: table.align, header: table.header },
+    };
+  }
+
   const FORMAT_COMMANDS = {
+    bold: inlineCommand('bold'),
+    italic: inlineCommand('italic'),
+    strike: inlineCommand('strike'),
+    code: inlineCommand('code'),
+    ...Object.fromEntries(['p', 'h1', 'h2', 'h3', 'ul', 'ol', 'blockquote', 'pre'].map((t) => [t, blockCommand(t)])),
+    ...Object.fromEntries(['table-row-above', 'table-row-below', 'table-col-left', 'table-col-right',
+      'table-delete-row', 'table-delete-col', 'table-delete', 'table-align-left', 'table-align-center',
+      'table-align-right'].map((c) => [c, tableCommandAt(c)])),
     'clean-up': () => markdownTools && applyTool(cleanUpText),
     'remove-newlines': () => markdownTools && applyTool(removeNewlines),
     'format-tables': () => markdownTools && applyTool(formatTables, { wholeLines: true }),
@@ -788,21 +1572,31 @@
     'title-case': () => applyTool(caseTool('title')),
     'sentence-case': () => applyTool(caseTool('sentence')),
   };
+  /** Runs a menu / shortcut command; what it changed lights up briefly, as in the preview. */
   function runFormatCommand(command) {
+    const before = editor.value;
+    const at = editor.selectionStart;
     FORMAT_COMMANDS[command]?.();
+    if (editor.value !== before) flashEditorRanges(window.TextDiff.changedRanges(before, editor.value), at);
   }
 
-  // The Help! button (#btn-format) opens a native menu just below itself; picking an item comes back as a
-  // 'format' command. The editor keeps focus the whole time: a textarea that loses focus stops
-  // painting its selection, and the user needs to see what the format will apply to.
+  // The Edit button (#btn-format) opens a native menu just below itself; right-clicking in the
+  // editor opens the same menu (plus Cut / Copy / Paste). Picks come back as 'format' commands.
+  // The editor keeps focus the whole time: a textarea that loses focus stops painting its
+  // selection, and the user needs to see what the format will apply to.
   const formatBtn = document.getElementById('btn-format');
   formatBtn.addEventListener('mousedown', (e) => e.preventDefault()); // don't take focus on click
   formatBtn.addEventListener('click', () => {
     editor.focus(); // also when opened from the keyboard (Tab + Space); keeps the selection as-is
     const r = formatBtn.getBoundingClientRect();
     formatBtn.setAttribute('aria-expanded', 'true');
-    bridge.showFormatMenu?.({ x: r.left, y: r.bottom + 4, markdownTools })
+    bridge.showFormatMenu?.({ x: r.left, y: r.bottom + 4, ...editorFormatState() })
       .finally(() => formatBtn.setAttribute('aria-expanded', 'false'));
+  });
+  editor.addEventListener('contextmenu', (e) => {
+    if (!bridge.showFormatMenu) return;
+    e.preventDefault();
+    bridge.showFormatMenu({ x: e.clientX, y: e.clientY, context: true, ...editorFormatState() });
   });
 
   // ---------- Document (open / save / dirty tracking) ----------
@@ -836,6 +1630,7 @@
     doc.dirty = null; // force a state report
     editor.value = content;
     editor.setSelectionRange(0, 0);
+    history.reset(content, [0, 0]);
     editor.scrollTop = 0;
     preview.scrollTop = 0;
     render();
@@ -856,12 +1651,16 @@
       const content = editor.value;
       const result = await bridge.saveFile(doc.filePath, content, { saveAs, defaultDir: folder?.path, eol: doc.eol });
       if (!result) return false; // user cancelled the save dialog
+      const moved = result.filePath !== doc.filePath;
       doc.filePath = result.filePath;
       doc.savedContent = content;
       doc.dirty = null;
       updateDirty();
-      applyKind(doc.filePath); // Save As may change the type (e.g. Untitled → page.html)
-      render(); // applyKind() cleared the preview; for HTML, <base> also follows a new folder
+      if (moved) {
+        applyKind(doc.filePath); // Save As may change the type (e.g. Untitled → page.html)
+        render(); // applyKind() cleared the preview; for HTML, <base> also follows a new folder
+      }
+      // (A plain Save leaves the preview alone, so editing in it can go on undisturbed.)
       if (folder && isInFolder(result.filePath)) refreshFolder();
       else markActiveFile();
       return true;
@@ -903,7 +1702,11 @@
       case 'save': return save(false);
       case 'save-as': return save(true);
       case 'copy-formatted': return copyFormatted();
+      case 'undo': return undo();
+      case 'redo': return redo();
       case 'format': return runFormatCommand(arg);
+      case 'preview-format': return applyPreviewFormat(arg);
+      case 'folder-action': return runFolderAction(arg);
       case 'request-close': return bridge.respondToClose(await confirmDiscard());
       default: return undefined;
     }
@@ -1070,6 +1873,7 @@
 
   let refreshing = null;
   async function refreshFolder() {
+    if (treeEditing) return null; // don't redraw the tree under an open name field
     if (!folder || refreshing) return refreshing;
     refreshing = bridge.listFolder(folder.path)
       .then(showFolder)
@@ -1121,6 +1925,209 @@
 
   document.getElementById('btn-refresh-folder').addEventListener('click', refreshFolder);
   document.getElementById('btn-close-folder').addEventListener('click', closeFolder);
+
+  // ---------- Folder sidebar: right-click menu (new file / folder, rename, trash, …) ----------
+  // The menu is built in main (folderMenuTemplate); picks come back as 'folder-action'. Names
+  // are typed into a field inside the tree, like Finder and VS Code. The file operations run in
+  // main, which refuses anything outside the open folder.
+  let treeEditing = null; // the open name field, if any
+
+  const parentDir = (p) => p.slice(0, Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\')));
+  const treeItemFor = (p) => [...fileTree.querySelectorAll('.tree-item')].find((b) => b.dataset.path === p);
+  /** Is `p` the open document's file, or a folder it's in? */
+  const holdsOpenDoc = (p) => !!doc.filePath && (doc.filePath === p || doc.filePath.startsWith(p + SEP));
+
+  sidebar.addEventListener('contextmenu', (e) => {
+    if (!folder || !bridge.showFolderMenu || e.target.closest('.tree-name-row')) return;
+    e.preventDefault();
+    const btn = e.target.closest('.tree-item');
+    const target = btn
+      ? {
+        path: btn.dataset.path,
+        type: btn.classList.contains('tree-dir') ? 'dir' : 'file',
+        root: false,
+        supported: btn.getAttribute('aria-disabled') !== 'true',
+      }
+      : { path: folder.path, type: 'dir', root: true };
+    btn?.classList.add('is-context');
+    bridge.showFolderMenu({ x: e.clientX, y: e.clientY, target })
+      .finally(() => btn?.classList.remove('is-context'));
+  });
+
+  /**
+   * An inline name field. Enter commits (onCommit may throw: the error is shown and the field
+   * stays), Escape cancels, clicking elsewhere commits a changed name or cancels.
+   */
+  function nameField({ row, value = '', selectTo, onCommit }) {
+    const input = make('input', 'tree-name-input');
+    input.type = 'text';
+    input.value = value;
+    input.spellcheck = false;
+    input.setAttribute('aria-label', 'Name');
+    row.append(input);
+    let busy = false;
+    const finish = () => {
+      if (treeEditing !== input) return;
+      treeEditing = null;
+      row.remove();
+      refreshFolder();
+    };
+    const commit = async () => {
+      if (busy) return;
+      const name = input.value.trim();
+      if (!name || name === value) { finish(); return; }
+      busy = true;
+      try {
+        await onCommit(name);
+        finish();
+      } catch (err) {
+        reportError('do that', err);
+        input.focus();
+      } finally {
+        busy = false;
+      }
+    };
+    input.addEventListener('keydown', (e) => {
+      e.stopPropagation(); // not the tree's arrow-key navigation
+      if (e.key === 'Enter') { e.preventDefault(); commit(); }
+      if (e.key === 'Escape') { e.preventDefault(); finish(); }
+    });
+    // Clicking elsewhere in the window commits (or cancels); switching apps leaves it open.
+    input.addEventListener('blur', () => setTimeout(() => {
+      if (treeEditing === input && document.hasFocus() && document.activeElement !== input && !busy) commit();
+    }, 0));
+    treeEditing = input;
+    input.focus();
+    input.setSelectionRange(0, selectTo ?? value.length);
+    return input;
+  }
+
+  function treeRow(depth, icon) {
+    const row = make('div', 'tree-name-row');
+    row.style.setProperty('--depth', String(depth));
+    row.innerHTML = icon;
+    return row;
+  }
+
+  /** New file / folder: a name field at the top of folder `dir` (expanded first). */
+  function askNewEntry(dir, kind) {
+    let list;
+    let depth = 0;
+    if (dir === folder.path) {
+      list = fileTree.querySelector(':scope > ul');
+      if (!list) { // an empty folder shows a message instead of a list
+        list = make('ul');
+        fileTree.replaceChildren(list);
+      }
+    } else {
+      const btn = treeItemFor(dir);
+      if (!btn) return;
+      toggleDir(btn, true);
+      list = btn.nextElementSibling;
+      depth = Number(btn.style.getPropertyValue('--depth')) + 1;
+    }
+    const li = make('li');
+    const row = treeRow(depth, kind === 'folder' ? CHEVRON : DOC_ICON);
+    li.append(row);
+    list.prepend(li);
+    row.scrollIntoView({ block: 'nearest' });
+    nameField({
+      row,
+      onCommit: async (typed) => {
+        // A file name without an extension becomes a Markdown file.
+        const name = kind === 'file' && !/\.[^.]+$/.test(typed) ? `${typed}.md` : typed;
+        const created = await bridge.createEntry(dir, name, kind);
+        li.remove();
+        if (kind === 'folder') expanded.add(created);
+        treeEditing = null;
+        await refreshFolder();
+        if (kind === 'file') openFile(created);
+        else treeItemFor(created)?.focus();
+      },
+    });
+  }
+
+  /** Rename: the item's label becomes a name field, the name selected without its extension. */
+  function askRename(target) {
+    const btn = treeItemFor(target);
+    if (!btn) return;
+    const name = btn.querySelector('.tree-label').textContent; // the full name, extension included
+    const dot = btn.classList.contains('tree-file') ? name.lastIndexOf('.') : -1;
+    const row = treeRow(Number(btn.style.getPropertyValue('--depth')), btn.classList.contains('tree-dir') ? CHEVRON : DOC_ICON);
+    btn.hidden = true;
+    btn.after(row);
+    const input = nameField({
+      row,
+      value: name,
+      selectTo: dot > 0 ? dot : name.length,
+      onCommit: async (newName) => {
+        const renamed = await bridge.renameEntry(target, newName);
+        movedOnDisk(target, renamed);
+      },
+    });
+    // Cancelled or done: show the item again (a refresh redraws it anyway).
+    input.addEventListener('blur', () => setTimeout(() => { if (!row.isConnected) btn.hidden = false; }, 0));
+    row.addEventListener('keydown', (e) => { if (e.key === 'Escape') btn.hidden = false; });
+  }
+
+  /** A file or folder was renamed: follow it with the open document and the expanded folders. */
+  function movedOnDisk(from, to) {
+    for (const p of [...expanded]) {
+      if (p === from || p.startsWith(from + SEP)) {
+        expanded.delete(p);
+        expanded.add(to + p.slice(from.length));
+      }
+    }
+    if (!holdsOpenDoc(from)) return;
+    const before = kind;
+    doc.filePath = to + doc.filePath.slice(from.length);
+    if (fileInfo(doc.filePath)?.kind !== before) { // e.g. notes.md → notes.txt keeps, .md → .json changes
+      applyKind(doc.filePath);
+      render();
+    }
+    doc.dirty = null; // report the new name (title bar, Save)
+    updateDirty();
+  }
+
+  async function runFolderAction({ action, path: target, type }) {
+    if (!folder) return;
+    try {
+      switch (action) {
+        case 'open': await openFile(target); break;
+        case 'new-file':
+        case 'new-folder':
+          askNewEntry(type === 'dir' ? target : parentDir(target), action === 'new-file' ? 'file' : 'folder');
+          break;
+        case 'rename': askRename(target); break;
+        case 'duplicate': {
+          const copy = await bridge.duplicateEntry(target);
+          await refreshFolder();
+          treeItemFor(copy)?.focus();
+          break;
+        }
+        case 'trash':
+          if (await bridge.trashEntry(target)) {
+            if (holdsOpenDoc(target)) {
+              // Its text stays in the editor, as an unsaved Untitled document.
+              doc.filePath = null;
+              doc.savedContent = null;
+              doc.dirty = null;
+              updateDirty();
+            }
+            await refreshFolder();
+          }
+          break;
+        case 'reveal': await bridge.revealEntry(target); break;
+        case 'copy-path': await bridge.copyEntryPath(target, false); break;
+        case 'copy-relative-path': await bridge.copyEntryPath(target, true); break;
+        case 'refresh': await refreshFolder(); break;
+        case 'close-folder': closeFolder(); break;
+        default: break;
+      }
+    } catch (err) {
+      reportError('do that', err);
+    }
+  }
   // Pick up files added, renamed or deleted elsewhere when coming back to the app.
   window.addEventListener('focus', () => { if (folder) refreshFolder(); });
 
@@ -1132,11 +2139,13 @@ Type on the left, see the result on the right, then **Copy** it into Docs, Word 
 ## Features
 
 - Live preview with GitHub-flavored Markdown
+- Edit on **either side**: changes in the preview update the Markdown
+- **Cmd+B** / *Cmd+I* for bold and italic
 - **Mermaid diagrams** (see below)
 - Dark mode toggle (top right)
-- Text tools in the **Help!** menu above the editor
+- Text tools in the **Edit** menu above the editor (or right-click)
 
-> Tip: select some text before using a **Help!** tool
+> Tip: select some text before using an **Edit** tool
 > to change only your selection.
 
 \`\`\`js

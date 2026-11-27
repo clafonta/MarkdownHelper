@@ -128,10 +128,14 @@ function setSidebarLayout(win, visible) {
   if (width < minWidth) win.setSize(minWidth, height);
 }
 
+// The folder each window's sidebar shows: sidebar file operations must stay inside it.
+const folderRoots = new WeakMap();
+
 async function listFolder(win, folderPath) {
   const tree = await scanFolder(folderPath);
   setSidebarLayout(win, true);
   app.addRecentDocument(folderPath);
+  folderRoots.set(win, tree.path);
   return tree;
 }
 
@@ -157,6 +161,99 @@ ipcMain.handle('path:is-folder', async (_event, p) => {
 ipcMain.on('folder:close', (event) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   if (win) setSidebarLayout(win, false);
+  if (win) folderRoots.delete(win);
+});
+
+// ---------- Sidebar file operations (right-click menu in the folder sidebar) ----------
+
+/** `p` resolved, if it's inside (or, with allowRoot, is) the sender window's open folder. */
+function inOpenFolder(event, p, { allowRoot = false } = {}) {
+  const root = folderRoots.get(BrowserWindow.fromWebContents(event.sender));
+  if (!root || typeof p !== 'string' || !p) throw new Error('No folder is open.');
+  const resolved = path.resolve(p);
+  const rel = path.relative(root, resolved);
+  if (rel === '' ? !allowRoot : (rel.startsWith('..') || path.isAbsolute(rel))) {
+    throw new Error('That is outside the open folder.');
+  }
+  return resolved;
+}
+
+/** A single file or folder name: not empty, no slashes, not . or .. */
+function checkName(name) {
+  const trimmed = typeof name === 'string' ? name.trim() : '';
+  if (!trimmed || trimmed === '.' || trimmed === '..' || /[\\/:]/.test(trimmed)) {
+    throw new Error('Please enter a name without slashes or colons.');
+  }
+  return trimmed;
+}
+
+const exists = (p) => fs.access(p).then(() => true, () => false);
+
+// New file or folder `name` inside `dir`. Returns the new path. Never overwrites.
+ipcMain.handle('entry:create', async (event, { dir, name, kind }) => {
+  const parent = inOpenFolder(event, dir, { allowRoot: true });
+  const target = path.join(parent, checkName(name));
+  if (await exists(target)) throw new Error(`“${path.basename(target)}” already exists.`);
+  if (kind === 'folder') await fs.mkdir(target);
+  else await fs.writeFile(target, '', { flag: 'wx' });
+  return target;
+});
+
+// Renames in place. Returns the new path.
+ipcMain.handle('entry:rename', async (event, { target, name }) => {
+  const from = inOpenFolder(event, target);
+  const to = path.join(path.dirname(from), checkName(name));
+  if (to === from) return from;
+  // (A change of case only is fine on a case-insensitive disk.)
+  if (to.toLowerCase() !== from.toLowerCase() && await exists(to)) {
+    throw new Error(`“${path.basename(to)}” already exists.`);
+  }
+  await fs.rename(from, to);
+  return to;
+});
+
+// "name copy.ext", "name copy 2.ext", … next to the original. Returns the new path.
+ipcMain.handle('entry:duplicate', async (event, target) => {
+  const from = inOpenFolder(event, target);
+  const isDir = (await fs.stat(from)).isDirectory();
+  const ext = isDir ? '' : path.extname(from);
+  const stem = path.basename(from, ext);
+  for (let n = 1; n < 1000; n += 1) {
+    const to = path.join(path.dirname(from), `${stem} copy${n > 1 ? ` ${n}` : ''}${ext}`);
+    if (!(await exists(to))) {
+      await fs.cp(from, to, { recursive: isDir, errorOnExist: true, force: false });
+      return to;
+    }
+  }
+  throw new Error('Too many copies already.');
+});
+
+// Asks first. Resolves true if it was moved to the Trash.
+ipcMain.handle('entry:trash', async (event, target) => {
+  const p = inOpenFolder(event, target);
+  const isDir = (await fs.stat(p)).isDirectory();
+  const { response } = await dialog.showMessageBox(BrowserWindow.fromWebContents(event.sender), {
+    type: 'warning',
+    buttons: ['Move to Trash', 'Cancel'],
+    defaultId: 0,
+    cancelId: 1,
+    message: `Move “${path.basename(p)}” to the Trash?`,
+    detail: isDir ? 'The folder and everything in it will be moved to the Trash.' : 'You can put it back from the Trash in Finder.',
+  });
+  if (response !== 0) return false;
+  await shell.trashItem(p);
+  return true;
+});
+
+ipcMain.handle('entry:reveal', (event, target) => {
+  shell.showItemInFolder(inOpenFolder(event, target, { allowRoot: true }));
+});
+
+// relative: the path from the open folder (e.g. docs/intro.md) instead of the full path.
+ipcMain.handle('entry:copy-path', async (event, { target, relative }) => {
+  const p = inOpenFolder(event, target, { allowRoot: true });
+  const root = folderRoots.get(BrowserWindow.fromWebContents(event.sender));
+  await clipboard.writeText(relative ? (path.relative(root, p) || '.') : p); // (async in Electron 45)
 });
 
 // Returns 'save' | 'discard' | 'cancel'.
@@ -198,32 +295,163 @@ ipcMain.on('app:close-response', (event, proceed) => {
   if (quitting) app.quit();
 });
 
-// ---------- Help! menu (the editor's text-tools button) ----------
+// ---------- Formatting menus ----------
+// Two menus share their items:
+//  - Markdown pane: the Edit button and right-click (formatMenuTemplate) → 'format' commands,
+//    applied to the Markdown text (FORMAT_COMMANDS in renderer.js);
+//  - preview: right-click (previewMenuTemplate) → 'preview-format' commands, applied to the
+//    preview (applyPreviewFormat).
+// Each formatting item shows the Markdown it writes (sublabel), so the menus double as a cheat
+// sheet; checkmarks show the formatting at the cursor. Accelerators are display-only: the panes
+// handle those keys themselves.
 
-function formatMenuTemplate(send, { markdownTools }) {
-  const markdownOnly = markdownTools ? {} : { enabled: false };
+// checked: true/false for a format that can be on or off, undefined for a plain action.
+function menuItem(send, enabled, label, syntax, command, checked, accelerator) {
+  return {
+    label,
+    ...(syntax ? { sublabel: syntax } : {}),
+    ...(checked === undefined ? {} : { type: 'checkbox', checked: !!checked }),
+    enabled,
+    ...(accelerator ? { accelerator, registerAccelerator: false } : {}),
+    click: () => send(command),
+  };
+}
+const menuHeading = (label) => ({ label, enabled: false });
+const SEPARATOR = { type: 'separator' };
+const CLIPBOARD = [SEPARATOR, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }];
+
+/** Text styles, then table structure (in a table) or paragraph types. */
+function formattingItems(item, state) {
+  const { block, table } = state;
+  const text = [
+    menuHeading('Text'),
+    item('Bold', '**text**', 'bold', state.bold, 'CmdOrCtrl+B'),
+    item('Italic', '*text*', 'italic', state.italic, 'CmdOrCtrl+I'),
+    item('Strikethrough', '~~text~~', 'strike', state.strike, 'CmdOrCtrl+Shift+X'),
+    item('Inline Code', '`text`', 'code', state.code, 'CmdOrCtrl+E'),
+  ];
+  if (table) {
+    // In a table: its structure instead of paragraph types (a cell can't hold those).
+    return [
+      ...text,
+      SEPARATOR,
+      menuHeading('Table'),
+      item('Insert Row Above', '| … | … |', 'table-row-above'),
+      item('Insert Row Below', '| … | … |', 'table-row-below'),
+      item('Insert Column Left', 'a cell in every row', 'table-col-left'),
+      item('Insert Column Right', 'a cell in every row', 'table-col-right'),
+      SEPARATOR,
+      menuHeading('Align Column'),
+      item('Align Left', '| :--- |', 'table-align-left', table.align === 'left'),
+      item('Align Center', '| :---: |', 'table-align-center', table.align === 'center'),
+      item('Align Right', '| ---: |', 'table-align-right', table.align === 'right'),
+      SEPARATOR,
+      item('Delete Row', table.header ? 'the next row becomes the header' : '', 'table-delete-row'),
+      item('Delete Column', '', 'table-delete-col'),
+      item('Delete Table', '', 'table-delete'),
+    ];
+  }
   return [
+    ...text,
+    SEPARATOR,
+    menuHeading('Paragraph'),
+    item('Normal Text', 'just text', 'p', block === 'p'),
+    item('Heading 1', '# Heading', 'h1', block === 'h1'),
+    item('Heading 2', '## Heading', 'h2', block === 'h2'),
+    item('Heading 3', '### Heading', 'h3', block === 'h3'),
+    item('Bulleted List', '- item', 'ul', block === 'ul'),
+    item('Numbered List', '1. item', 'ol', block === 'ol'),
+    item('Quote', '> text', 'blockquote', block === 'blockquote'),
+    item('Code Block', '``` code ```', 'pre', block === 'pre'),
+  ];
+}
+
+/**
+ * The Markdown pane's menu (Edit button, right-click): formatting (Markdown & text files only),
+ * then the text tools. state: { markdownTools, bold, italic, strike, code, block, table }.
+ */
+function formatMenuTemplate(send, state, { context = false } = {}) {
+  const { markdownTools } = state;
+  const markdownOnly = markdownTools ? {} : { enabled: false };
+  const item = (...args) => menuItem(send, true, ...args);
+  return [
+    ...(markdownTools ? [...formattingItems(item, state), SEPARATOR] : []),
+    menuHeading('Clean Up'),
     { label: 'Clean Up Pasted Text', click: () => send('clean-up'), ...markdownOnly },
     { label: 'Remove New Lines', click: () => send('remove-newlines'), ...markdownOnly },
     { label: 'Format Tables', click: () => send('format-tables'), ...markdownOnly },
     { label: 'Convert to Table', click: () => send('convert-table'), ...markdownOnly },
-    { type: 'separator' },
+    SEPARATOR,
+    menuHeading('Change Case'),
     { label: 'UPPERCASE', click: () => send('uppercase') },
     { label: 'lowercase', click: () => send('lowercase') },
     { label: 'Title Case', click: () => send('title-case') },
     { label: 'Sentence case', click: () => send('sentence-case') },
+    ...(context ? CLIPBOARD : []),
   ];
 }
 
-// Resolves once the menu closes (picked or dismissed), so the button can reset its state.
-ipcMain.handle('format-menu:show', (event, { x, y, markdownTools } = {}) => {
+/** Pops a menu up at (x, y) in the sender's window; resolves when it closes. */
+function showMenu(event, template, x, y) {
   const win = BrowserWindow.fromWebContents(event.sender);
   if (!win) return null;
-  const send = (command) => event.sender.send('menu:format', command);
-  const menu = Menu.buildFromTemplate(formatMenuTemplate(send, { markdownTools: markdownTools !== false }));
+  const menu = Menu.buildFromTemplate(template);
   return new Promise((resolve) => {
     menu.popup({ window: win, x: Math.round(x) || 0, y: Math.round(y) || 0, callback: () => resolve(null) });
   });
+}
+
+// Resolves once the menu closes (picked or dismissed), so the Edit button can reset its state.
+// context: opened by right-click (adds Cut / Copy / Paste).
+ipcMain.handle('format-menu:show', (event, { x, y, context, ...state } = {}) => {
+  const send = (command) => event.sender.send('menu:format', command);
+  const template = formatMenuTemplate(send, { ...state, markdownTools: state.markdownTools !== false }, { context: !!context });
+  return showMenu(event, template, x, y);
+});
+
+function previewMenuTemplate(send, state) {
+  const item = (...args) => menuItem(send, state.editable !== false, ...args);
+  return [...formattingItems(item, state), ...CLIPBOARD];
+}
+
+ipcMain.handle('preview-menu:show', (event, { x, y, state } = {}) => {
+  const send = (command) => event.sender.send('menu:preview-format', command);
+  return showMenu(event, previewMenuTemplate(send, state || {}), x, y);
+});
+
+/**
+ * Folder sidebar right-click menu. target: { path, type: 'file' | 'dir', root, supported }
+ * (root: the open folder itself, from a right-click on empty space). Picks come back to the
+ * renderer as 'folder-action' commands ({ action, path, type }); it asks for names inline.
+ */
+function folderMenuTemplate(send, target) {
+  const act = (label, action, extra = {}) => ({ label, click: () => send(action), ...extra });
+  const fileOrFolder = target.type === 'dir' ? 'Folder' : 'File';
+  const locate = [
+    act('Reveal in Finder', 'reveal'),
+    act('Copy Path', 'copy-path'),
+    ...(target.root ? [] : [act('Copy Relative Path', 'copy-relative-path')]),
+  ];
+  const create = [act('New File…', 'new-file'), act('New Folder…', 'new-folder')];
+  if (target.root) {
+    return [...create, SEPARATOR, ...locate, SEPARATOR, act('Refresh', 'refresh'), act('Close Folder', 'close-folder')];
+  }
+  return [
+    ...(target.type === 'file' ? [act('Open', 'open', { enabled: !!target.supported }), SEPARATOR] : []),
+    ...create,
+    SEPARATOR,
+    act('Rename…', 'rename'),
+    act(`Duplicate ${fileOrFolder}`, 'duplicate'),
+    act('Move to Trash', 'trash'),
+    SEPARATOR,
+    ...locate,
+  ];
+}
+
+ipcMain.handle('folder-menu:show', (event, { x, y, target } = {}) => {
+  if (!target || typeof target.path !== 'string') return null;
+  const send = (action) => event.sender.send('menu:folder-action', { action, path: target.path, type: target.type });
+  return showMenu(event, folderMenuTemplate(send, target), x, y);
 });
 
 // Rich copy: HTML for mail/docs apps, plain text for everything else.
@@ -245,6 +473,11 @@ ipcMain.on('theme:set', (_event, mode) => {
 });
 
 // ---------- Menu ----------
+
+function sendIfOpen(channel) {
+  const win = BrowserWindow.getFocusedWindow();
+  if (win) win.webContents.send(channel);
+}
 
 function sendToFocused(channel) {
   const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
@@ -283,8 +516,10 @@ function buildMenu() {
     {
       label: 'Edit',
       submenu: [
-        { role: 'undo' },
-        { role: 'redo' },
+        // The renderer keeps its own history (undo-history.js) shared by the editor and the
+        // editable preview; Chromium's native undo can't follow edits made in the preview.
+        { label: 'Undo', accelerator: 'CmdOrCtrl+Z', click: () => sendIfOpen('menu:undo') },
+        { label: 'Redo', accelerator: 'Shift+CmdOrCtrl+Z', click: () => sendIfOpen('menu:redo') },
         { type: 'separator' },
         { role: 'cut' },
         { role: 'copy' },

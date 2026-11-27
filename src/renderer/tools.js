@@ -574,8 +574,518 @@
     return formatTables(table.join('\n'));
   }
 
+  // ---------- Bold / italic (Cmd+B / Cmd+I in the editor) ----------
+
+  // Line-start Markdown that must stay outside the markers: "- **item**", not "**- item**".
+  const LINE_PREFIX = /^\s*(?:(?:#{1,6}|>|[-+*]|\d{1,9}[.)])\s+(?:\[[ xX]\]\s+)?)*/;
+
+  const runLength = (text, from, step, ch) => {
+    let n = 0;
+    for (let i = from; i >= 0 && i < text.length && text[i] === ch; i += step) n += 1;
+    return n;
+  };
+  // marker: what's written; chars: marker characters that count when unwrapping;
+  // has(len): a run of that many marker characters contains the style (*** = bold + italic).
+  const INLINE_STYLES = {
+    bold: { marker: '**', chars: ['*', '_'], has: (len) => len >= 2 },
+    italic: { marker: '*', chars: ['*', '_'], has: (len) => len % 2 === 1 },
+    strike: { marker: '~~', chars: ['~'], has: (len) => len >= 2 },
+    code: { marker: '`', chars: ['`'], has: (len) => len >= 1 },
+  };
+  const hasStyle = (len, style) => INLINE_STYLES[style].has(len);
+
+  /**
+   * Toggles bold, italic, strike(through) or (inline) code on text[start, end). Returns
+   * { text, start, end } with the new selection. Unwraps when the selection is already wrapped
+   * (markers just outside or just inside it; `_` counts for bold/italic too); otherwise wraps each
+   * selected line, keeping spaces and line-start markers (list bullets, `#`, `>`) outside.
+   * No selection: inserts an empty pair, cursor inside.
+   */
+  function toggleInline(text, start, end, style) {
+    const { marker, chars } = INLINE_STYLES[style];
+    const m = marker.length;
+    if (start === end) {
+      return { text: text.slice(0, start) + marker + marker + text.slice(end), start: start + m, end: start + m };
+    }
+    for (const ch of chars) {
+      // Markers just outside the selection.
+      const before = runLength(text, start - 1, -1, ch);
+      const after = runLength(text, end, 1, ch);
+      if (hasStyle(before, style) && hasStyle(after, style) && !text.slice(start, end).includes('\n')) {
+        return { text: text.slice(0, start - m) + text.slice(start, end) + text.slice(end + m), start: start - m, end: end - m };
+      }
+      // Markers just inside it.
+      const sel = text.slice(start, end);
+      const open = runLength(sel, 0, 1, ch);
+      const close = runLength(sel, sel.length - 1, -1, ch);
+      if (sel.length >= 2 * m + 1 && open < sel.length && hasStyle(open, style) && hasStyle(close, style) && !sel.includes('\n')) {
+        return { text: text.slice(0, start) + sel.slice(m, sel.length - m) + text.slice(end), start, end: end - 2 * m };
+      }
+    }
+    // Wrap (or, if every selected line is already wrapped, unwrap) line by line.
+    const lineStart = text.lastIndexOf('\n', start - 1) + 1;
+    const segments = text.slice(start, end).split('\n').map((seg, i) => {
+      const prefix = i > 0 || start === lineStart ? seg.match(LINE_PREFIX)[0] : seg.match(/^\s*/)[0];
+      const rest = seg.slice(prefix.length);
+      const trail = rest.match(/\s*$/)[0];
+      return { prefix, core: rest.slice(0, rest.length - trail.length), trail };
+    });
+    const filled = segments.filter((s) => s.core);
+    const wrapped = (core) => core.length > 2 * m
+      && hasStyle(runLength(core, 0, 1, core[0]), style) && hasStyle(runLength(core, core.length - 1, -1, core[0]), style)
+      && chars.includes(core[0]) && core[core.length - 1] === core[0];
+    const unwrap = filled.length > 0 && filled.every((s) => wrapped(s.core));
+    const out = segments.map(({ prefix, core, trail }) => {
+      if (!core) return prefix + trail;
+      return prefix + (unwrap ? core.slice(m, core.length - m) : marker + core + marker) + trail;
+    }).join('\n');
+    const result = text.slice(0, start) + out + text.slice(end);
+    if (segments.length === 1 && segments[0].core) {
+      // One line: select the text between the markers, so pressing the shortcut again undoes it.
+      const s = start + segments[0].prefix.length + (unwrap ? 0 : m);
+      const len = unwrap ? segments[0].core.length - 2 * m : segments[0].core.length;
+      return { text: result, start: s, end: s + len };
+    }
+    return { text: result, start, end: start + out.length };
+  }
+  const toggleEmphasis = toggleInline; // (bold / italic: the original name)
+
+  const lineIndexAt = (text, pos) => text.slice(0, pos).split('\n').length - 1;
+  const lineOffset = (lines, i) => lines.slice(0, i).join('\n').length + (i ? 1 : 0);
+
+  // Spans per style, for the menu's checkmarks (a heuristic; *** counts as bold only).
+  const INLINE_SPANS = {
+    bold: /(\*\*|__)(?=\S)(.*?\S)\1/g,
+    italic: /(?<![*_\w])([*_])(?![*_\s])(.*?[^\s*_])\1(?![*_\w])/g,
+    strike: /(~~)(?=\S)(.*?\S)~~/g,
+    code: /(`+)(.+?)\1(?!`)/g,
+  };
+
+  /** Which inline styles cover text[start, end) (both on one line). */
+  function inlineStylesAt(text, start, end) {
+    const result = { bold: false, italic: false, strike: false, code: false };
+    const lineStart = text.lastIndexOf('\n', start - 1) + 1;
+    let lineEnd = text.indexOf('\n', start);
+    if (lineEnd === -1) lineEnd = text.length;
+    if (end > lineEnd) return result;
+    const line = text.slice(lineStart, lineEnd);
+    for (const [style, re] of Object.entries(INLINE_SPANS)) {
+      for (const match of line.matchAll(re)) {
+        const open = lineStart + match.index + match[1].length;
+        const close = lineStart + match.index + match[0].length - match[1].length;
+        if (open <= start && end <= close) result[style] = true;
+      }
+    }
+    return result;
+  }
+
+  /** [open, close] line indices of each fenced code block (close = last line if unclosed). */
+  function fencedBlocks(lines) {
+    const blocks = [];
+    let open = -1;
+    let fence = null;
+    lines.forEach((line, i) => {
+      if (fence) {
+        if (closesFence(line, fence)) { blocks.push([open, i]); fence = null; }
+        return;
+      }
+      const m = line.match(FENCE);
+      if (m) { fence = m[1]; open = i; }
+    });
+    if (fence) blocks.push([open, lines.length - 1]);
+    return blocks;
+  }
+
+  /** The paragraph type of the line `pos` is on: p, h1–h3, ul, ol, blockquote, pre, table. */
+  function blockTypeAt(text, pos) {
+    const lines = text.split('\n');
+    const i = lineIndexAt(text, pos);
+    const kind = classifyLines(lines)[i];
+    const line = lines[i];
+    if (kind === 'code') return 'pre';
+    if (kind === 'table') return 'table';
+    if (kind === 'heading') return `h${Math.min(3, line.match(/#+/)[0].length)}`;
+    if (kind === 'list') return /^\s*\d/.test(line) ? 'ol' : 'ul';
+    if (kind === 'quote') return 'blockquote';
+    return 'p';
+  }
+
+  const BLOCK_PREFIX = /^\s*(?:#{1,6}\s+|>\s?|[-*+]\s+(?:\[[ xX]\]\s+)?|\d{1,9}[.)]\s+)/;
+  const stripBlockPrefix = (line) => {
+    let out = line;
+    while (BLOCK_PREFIX.test(out) && out.replace(BLOCK_PREFIX, '') !== out) out = out.replace(BLOCK_PREFIX, '');
+    return out;
+  };
+
+  /**
+   * Makes the selected lines (no selection: the paragraph or line at the cursor) one paragraph
+   * type: 'p' (plain text), 'h1'–'h3', 'ul', 'ol', 'blockquote' or 'pre' (fenced code). Picking
+   * the type they already have turns it back into plain text. Returns { text, start, end }.
+   */
+  function setBlockType(text, start, end, type) {
+    const lines = text.split('\n');
+    let first = lineIndexAt(text, start);
+    let last = lineIndexAt(text, end > start && text[end - 1] === '\n' ? end - 1 : end);
+    const kinds = classifyLines(lines);
+    const current = blockTypeAt(text, start);
+    const fence = fencedBlocks(lines).find(([a, b]) => a <= first && first <= b);
+    let content;
+    if (fence) {
+      first = fence[0];
+      last = Math.max(last, fence[1]);
+      content = lines.slice(first + 1, fence[1]).concat(lines.slice(fence[1] + 1, last + 1));
+    } else {
+      if (start === end && kinds[first] === 'para') { // the whole paragraph around the cursor
+        while (first > 0 && kinds[first - 1] === 'para') first -= 1;
+        while (last < lines.length - 1 && kinds[last + 1] === 'para') last += 1;
+      }
+      content = lines.slice(first, last + 1).map(stripBlockPrefix);
+    }
+    const target = type === current && type !== 'p' ? 'p' : type;
+    const filled = content.filter((l) => l.trim());
+    let out;
+    let number = 0;
+    switch (target) {
+      case 'h1': case 'h2': case 'h3':
+        out = [`${'#'.repeat(Number(target[1]))} ${filled.map((l) => l.trim()).join(' ')}`];
+        break;
+      case 'ul': out = content.map((l) => (l.trim() ? `- ${l.trim()}` : l)); break;
+      case 'ol': out = content.map((l) => (l.trim() ? `${(number += 1)}. ${l.trim()}` : l)); break;
+      case 'blockquote': out = content.map((l) => (l.trim() ? `> ${l}` : '>')); break;
+      case 'pre': out = ['```', ...content, '```']; break;
+      default: out = content;
+    }
+    const from = lineOffset(lines, first);
+    const to = lineOffset(lines, last) + lines[last].length;
+    const block = out.join('\n');
+    const result = text.slice(0, from) + block + text.slice(to);
+    return start === end
+      ? { text: result, start: from + block.length, end: from + block.length }
+      : { text: result, start: from, end: from + block.length };
+  }
+
+  // ---------- Tables in the editor (insert / delete rows and columns, column alignment) ----------
+
+  /** The table around `pos`: line range, cells, alignments, and the cursor's row and column. */
+  function tableAt(text, pos) {
+    const lines = text.split('\n');
+    const row = lineIndexAt(text, pos);
+    const tableLines = findTableLines(lines);
+    if (!tableLines.has(row)) return null;
+    let first = row;
+    while (tableLines.has(first - 1)) first -= 1;
+    let last = row;
+    while (tableLines.has(last + 1)) last += 1;
+    const cells = lines.slice(first, last + 1).map(splitCells);
+    const columns = Math.max(...cells.map((r) => r.length));
+    const aligns = [];
+    for (let c = 0; c < columns; c += 1) aligns.push(alignmentOf(cells[1][c] || '---'));
+    const rows = [cells[0], ...cells.slice(2)].map((r) => Array.from({ length: columns }, (_, c) => r[c] ?? ''));
+    // Column: unescaped pipes before the cursor on its line.
+    const line = lines[row];
+    const col = pos - lineOffset(lines, row);
+    let pipes = 0;
+    for (let i = 0; i < col; i += 1) if (line[i] === '|' && line[i - 1] !== '\\') pipes += 1;
+    const leading = line.trim().startsWith('|') ? 1 : 0;
+    const column = Math.max(0, Math.min(columns - 1, pipes - leading));
+    const r = row - first;
+    return {
+      first, last, rows, aligns, column,
+      row: r <= 1 ? 0 : r - 1, // 0 = header (also when on the --- line)
+      indent: lines[first].match(/^\s*/)[0],
+      align: aligns[column] === 'none' ? '' : aligns[column],
+      header: r <= 1,
+    };
+  }
+
+  /** Where the text of cell `column` ends in a table line (just inside an empty cell). */
+  function cellEnd(line, column) {
+    const pipes = [];
+    for (let i = 0; i < line.length; i += 1) if (line[i] === '|' && line[i - 1] !== '\\') pipes.push(i);
+    const leading = line.trim().startsWith('|') ? 1 : 0;
+    const open = column + leading - 1 >= 0 ? pipes[column + leading - 1] : -1;
+    const close = pipes[column + leading] ?? line.length;
+    let end = close;
+    while (end > open + 1 && line[end - 1] === ' ') end -= 1;
+    return end === open + 1 ? Math.min(open + 2, close) : end;
+  }
+
+  /**
+   * Table commands at the cursor: 'table-row-above' | 'table-row-below' | 'table-col-left' |
+   * 'table-col-right' | 'table-delete-row' | 'table-delete-col' | 'table-delete' |
+   * 'table-align-left' | 'table-align-center' | 'table-align-right' (again = no alignment).
+   * The table is rewritten aligned. Returns { text, start, end } or null when not in a table.
+   */
+  function tableEdit(text, pos, command) {
+    const t = tableAt(text, pos);
+    if (!t) return null;
+    const lines = text.split('\n');
+    const { rows, aligns } = t;
+    let { row, column } = t;
+    const columns = aligns.length;
+    const empty = () => Array(columns).fill('');
+    let removeTable = false;
+    switch (command) {
+      case 'table-row-above': rows.splice(row, 0, empty()); break; // above the header: new header
+      case 'table-row-below': rows.splice(row + 1, 0, empty()); row += 1; break;
+      case 'table-col-left':
+      case 'table-col-right': {
+        const at = command === 'table-col-left' ? column : column + 1;
+        for (const r of rows) r.splice(at, 0, '');
+        aligns.splice(at, 0, 'none');
+        column = at;
+        break;
+      }
+      case 'table-delete-row':
+        if (rows.length === 1) removeTable = true;
+        else { rows.splice(row, 1); row = Math.min(row, rows.length - 1); }
+        break;
+      case 'table-delete-col':
+        if (columns === 1) removeTable = true;
+        else {
+          for (const r of rows) r.splice(column, 1);
+          aligns.splice(column, 1);
+          column = Math.min(column, aligns.length - 1);
+        }
+        break;
+      case 'table-delete': removeTable = true; break;
+      case 'table-align-left':
+      case 'table-align-center':
+      case 'table-align-right': {
+        const want = command.slice('table-align-'.length);
+        aligns[column] = aligns[column] === want ? 'none' : want;
+        break;
+      }
+      default: return null;
+    }
+    const from = lineOffset(lines, t.first);
+    const to = lineOffset(lines, t.last) + lines[t.last].length;
+    if (removeTable) {
+      const out = lines.slice();
+      let at = t.first;
+      let count = t.last - t.first + 1;
+      // Between two blank lines (or a blank line and the end): take one blank line with it.
+      if (at > 0 && !out[at - 1].trim() && (t.last + 1 >= out.length || !out[t.last + 1].trim())) {
+        at -= 1;
+        count += 1;
+      }
+      out.splice(at, count);
+      const caret = lineOffset(out, Math.min(at, out.length - 1));
+      return { text: out.join('\n'), start: caret, end: caret };
+    }
+    const delim = aligns.map((a) => ({ left: ':--', center: ':-:', right: '--:' }[a] || '---'));
+    const raw = [rows[0], delim, ...rows.slice(1)].map((r) => `${t.indent}| ${r.join(' | ')} |`);
+    const table = formatTables(raw.join('\n'));
+    const result = text.slice(0, from) + table + text.slice(to);
+    const tableLinesOut = table.split('\n');
+    const lineNo = row === 0 ? 0 : row + 1;
+    const caret = from + lineOffset(tableLinesOut, lineNo) + cellEnd(tableLinesOut[lineNo], column);
+    return { text: result, start: caret, end: caret };
+  }
+
+  // ---------- Typing in lists: Enter continues a list, Tab / Shift+Tab nest ----------
+
+  // Optional quote markers, indentation, a list marker, spaces, an optional task box.
+  const LIST_LINE = /^((?:[ \t]*>[ \t]?)*)([ \t]*)(?:([-*+])|(\d{1,9})([.)]))([ \t]+)(\[[ xX]\][ \t]+)?/;
+  const QUOTE_LINE = /^(?:[ \t]*>[ \t]?)+/;
+
+  /**
+   * Enter at text[start, end) in Markdown. In a list item: a new item with the same marker
+   * (numbers count up, a task item starts unticked), taking the text after the cursor along. In
+   * an empty item: removes the marker (ends the list; an enclosing quote stays). In a quote:
+   * continues it; an empty quote line ends it. Returns { text, start, end }, or null where Enter
+   * should just insert a newline (not a list or quote, cursor inside the marker, code blocks).
+   */
+  function continueList(text, start, end) {
+    const base = text.slice(0, start) + text.slice(end);
+    const lines = base.split('\n');
+    const i = lineIndexAt(base, start);
+    if (classifyLines(lines)[i] === 'code') return null;
+    const line = lines[i];
+    const lineStart = lineOffset(lines, i);
+    const list = line.match(LIST_LINE);
+    const quote = !list && line.match(QUOTE_LINE);
+    if (!list && !quote) return null;
+    const prefix = (list || quote)[0];
+    if (start - lineStart < prefix.length) return null; // cursor in the marker: a plain newline
+    if (!line.slice(prefix.length).trim()) {
+      // An empty item / quote line: end the list (or quote) here.
+      const rest = list ? list[1] : '';
+      const out = base.slice(0, lineStart) + rest + base.slice(lineStart + line.length);
+      const at = lineStart + rest.length;
+      return { text: out, start: at, end: at };
+    }
+    let next = quote ? prefix : '';
+    if (list) {
+      const marker = list[3] || `${Number(list[4]) + 1}${list[5]}`;
+      next = list[1] + list[2] + marker + list[6] + (list[7] ? '[ ] ' : '');
+    }
+    // Splitting "- buy |milk": no trailing space on the first item, no leading one on the new one.
+    let before = base.slice(0, start);
+    if (start - lineStart > prefix.length) before = before.replace(/[ \t]+$/, '');
+    const after = base.slice(start).replace(/^[ \t]+/, '');
+    const at = before.length + 1 + next.length;
+    const out = `${before}\n${next}${after}`;
+    if (!list || !list[4]) return { text: out, start: at, end: at };
+    // A numbered item: renumber the items after it (inserting "3." before "3. c" makes it "4.").
+    const r = renumberList(out, i + 1);
+    return { text: r.text, start: r.map(at), end: r.map(at) };
+  }
+
+  const leadOf = (line) => line.match(/^[ \t]*/)[0];
+
+  /** Is there a list item with indentation `lead` above line i, in the same list? */
+  function hasItemAbove(lines, i, lead) {
+    for (let j = i - 1; j >= 0; j -= 1) {
+      const l = lines[j];
+      if (!l.trim() || leadOf(l).length > lead.length) continue; // blank or nested: same list
+      const m = l.match(LIST_LINE);
+      return !!(m && !m[1] && m[2] === lead);
+    }
+    return false;
+  }
+
+  /**
+   * Renumbers the numbered list that line `index` belongs to (items at the same indent, with
+   * nested lines and blank lines between them), counting up from its first item's number (or
+   * from `start`).
+   * Returns { text, map } where map(pos) moves a position in `text` past numbers that got wider
+   * or narrower. Lists inside quotes are left alone.
+   */
+  function renumberList(text, index, start) {
+    const identity = { text, map: (pos) => pos };
+    const lines = text.split('\n');
+    const m = (lines[index] || '').match(LIST_LINE);
+    if (!m || !m[4] || m[1]) return identity;
+    const lead = m[2];
+    const isItem = (l) => { const x = l.match(LIST_LINE); return !!(x && x[4] && !x[1] && x[2] === lead); };
+    const inside = (l) => !l.trim() || leadOf(l).length > lead.length;
+    let first = index;
+    for (let j = index - 1; j >= 0; j -= 1) {
+      if (isItem(lines[j])) first = j;
+      else if (!inside(lines[j])) break;
+    }
+    let last = index;
+    for (let j = index + 1; j < lines.length; j += 1) {
+      if (isItem(lines[j])) last = j;
+      else if (!inside(lines[j])) break;
+    }
+    const starts = []; // each line's offset in the original text
+    let offset = 0;
+    for (const l of lines) { starts.push(offset); offset += l.length + 1; }
+    const changes = []; // [offset of a number in the original text, its length change]
+    let number = start ?? Number(lines[first].match(LIST_LINE)[4]);
+    for (let j = first; j <= last; j += 1) {
+      if (!isItem(lines[j])) continue;
+      const old = lines[j].match(LIST_LINE)[4];
+      const now = String(number);
+      number += 1;
+      if (old === now) continue;
+      changes.push([starts[j] + lead.length, now.length - old.length]);
+      lines[j] = lead + now + lines[j].slice(lead.length + old.length);
+    }
+    if (!changes.length) return identity;
+    return {
+      text: lines.join('\n'),
+      map: (pos) => changes.reduce((p, [at, delta]) => (at < pos ? p + delta : p), pos),
+    };
+  }
+
+  /**
+   * The indentation a list item at line i gets when nested one level deeper: under the text of
+   * the item above it at the same level ("1. " nests by 3), or one `unit` more.
+   */
+  function nestedLead(lines, i, unit) {
+    const lead = leadOf(lines[i]);
+    for (let j = i - 1; j >= 0; j -= 1) {
+      if (!lines[j].trim()) continue;
+      const m = lines[j].match(LIST_LINE);
+      if (!m || m[1]) break; // (items inside quotes: keep it simple)
+      if (m[2].length === lead.length) {
+        return unit === '\t' ? `${lead}\t` : lead + ' '.repeat(m[0].length - m[2].length - (m[7] || '').length);
+      }
+      if (m[2].length < lead.length) break;
+    }
+    return lead + unit;
+  }
+
+  /** The indentation of the item a nested list item at line i belongs to ('' at the top level). */
+  function parentLead(lines, i) {
+    const lead = leadOf(lines[i]).length;
+    for (let j = i - 1; j >= 0; j -= 1) {
+      if (!lines[j].trim()) continue;
+      const m = lines[j].match(LIST_LINE);
+      if (!m || m[1]) break;
+      if (m[2].length < lead) return m[2];
+    }
+    return '';
+  }
+
+  /**
+   * Tab (outdent = false) / Shift+Tab (outdent = true) at text[start, end). A Markdown list item
+   * (cursor anywhere on it; only with `lists`) is nested one level deeper / brought up a level;
+   * several selected lines are all indented / outdented by the same amount. Returns
+   * { text, start, end }, or null for a plain Tab on an ordinary line (the caller inserts an
+   * indent at the cursor).
+   */
+  function indentLines(text, start, end, unit, outdent = false, { lists = true } = {}) {
+    const lines = text.split('\n');
+    const first = lineIndexAt(text, start);
+    const last = lineIndexAt(text, end > start && text[end - 1] === '\n' ? end - 1 : end);
+    const isList = lists && LIST_ITEM.test(lines[first]);
+    if (first === last && !isList && !outdent) return null;
+    // The change is worked out on the first line and applied to every selected line alike.
+    const lead = leadOf(lines[first]);
+    let add = '';
+    let remove = 0;
+    if (!outdent) {
+      add = isList ? nestedLead(lines, first, unit).slice(lead.length) : unit;
+    } else if (isList) {
+      remove = lead.length - parentLead(lines, first).length;
+    } else {
+      remove = lead.startsWith('\t') ? 1 : Math.min(lead.length, unit === '\t' ? 4 : unit.length);
+    }
+    const selectedFromLineStart = start !== end && start === lineOffset(lines, first);
+    let newStart = start;
+    let newEnd = end;
+    for (let i = first; i <= last; i += 1) {
+      if (!lines[i].trim() && first !== last) continue;
+      const before = lines[i];
+      const cut = Math.min(remove, leadOf(before).length);
+      lines[i] = add + before.slice(cut);
+      const delta = lines[i].length - before.length;
+      const lineStart = lineOffset(lines, i);
+      // A selection that began at the start of the line still does (it takes in the new indent).
+      if (i === first) newStart = selectedFromLineStart ? lineStart : Math.max(lineStart, start + delta);
+      newEnd += delta;
+    }
+    if (start === end) newEnd = newStart;
+    let result = { text: lines.join('\n'), start: newStart, end: Math.max(newStart, newEnd) };
+    if (isList) {
+      // Renumber both numbered lists involved: the level the item joined (starting at 1 if it's
+      // the first item there) and the level it left (whose next item takes over the moved item's
+      // number if the moved item was the first).
+      const renumber = (index, from) => {
+        const r = renumberList(result.text, index, from);
+        result = { text: r.text, start: r.map(result.start), end: r.map(result.end) };
+      };
+      const original = text.split('\n');
+      const moved = original[first].match(LIST_LINE);
+      const leftFirst = !hasItemAbove(original, first, lead);
+      const now = result.text.split('\n');
+      renumber(first, hasItemAbove(now, first, leadOf(now[first])) ? undefined : 1);
+      const isOldLevelItem = (l) => { const x = l.match(LIST_LINE); return !!(x && x[4] && !x[1] && x[2] === lead); };
+      const after = result.text.split('\n');
+      const near = [...after.keys()].filter((k) => k > last).concat([...after.keys()].filter((k) => k < first).reverse())
+        .find((k) => isOldLevelItem(after[k]));
+      if (near !== undefined) renumber(near, near > last && leftFirst && moved?.[4] ? Number(moved[4]) : undefined);
+    }
+    return result;
+  }
+
   const api = {
-    removeNewlines, formatTables, changeCase, cleanUpText, toTable,
+    removeNewlines, formatTables, changeCase, cleanUpText, toTable, toggleEmphasis, toggleInline,
+    inlineStylesAt, blockTypeAt, setBlockType, tableAt, tableEdit, continueList, indentLines,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.MarkdownTools = api;

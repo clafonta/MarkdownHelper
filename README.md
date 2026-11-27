@@ -10,9 +10,10 @@ npm install
 npm start
 ```
 
-`npm start` runs inside Electron's stock `Electron.app`. macOS takes the menu-bar name and Dock icon
-from that bundle, so `scripts/brand-dev-electron.js` renames it to "Markdown Helper" and gives it our
-icon. It runs automatically after `npm install` and before `npm start`.
+`npm start` runs inside Electron's stock `Electron.app`. macOS takes the menu-bar name, the Dock's
+hover label (the bundle's file name) and the Dock icon from that bundle, so
+`scripts/brand-dev-electron.js` renames it to `Markdown Helper.app` and gives it our name and icon.
+It runs automatically after `npm install` and before `npm start`.
 
 ## Layout
 
@@ -46,6 +47,21 @@ subfolders. Click a file to open it in the editor. Files Markdown Helper can't o
 greyed out; hidden files and `node_modules` are left out. The list refreshes when you
 switch back to the app or save a file into the folder (or click ↻), and × closes the sidebar.
 Arrow keys move through the list; Left/Right collapse and expand folders.
+
+**Right-click** in the sidebar for file and folder actions:
+
+- **New File…** / **New Folder…** – in the folder you clicked (or next to the file). Type the
+  name in the list and press Enter (Escape cancels). A file name without an extension gets
+  `.md`; a new file opens right away.
+- **Rename…** – edit the name in place (the name is selected without its extension). Renaming
+  the open file, or a folder it's in, keeps it open under its new name.
+- **Duplicate** – makes "name copy.md" (then "name copy 2.md", …) next to it.
+- **Move to Trash** – asks first. If it was the open file, its text stays in the editor as an
+  unsaved "Untitled" document, so nothing is lost.
+- **Reveal in Finder**, **Copy Path**, **Copy Relative Path** (from the open folder), **Open**.
+- On empty space: New File / New Folder at the top level, Reveal, Copy Path, Refresh, Close Folder.
+
+These only ever act inside the open folder.
 
 ### Command line
 
@@ -84,7 +100,20 @@ tools below only apply to Markdown and text files.
   as written (big numbers aren't rounded). Very large files start with two levels open. **Copy**
   copies the JSON text (pretty-printed), not the tree.
 - **Tab** inserts two spaces, or a real tab in Makefiles, Go and TSV files and in files that are
-  already indented with tabs.
+  already indented with tabs. With several lines selected, Tab / **Shift+Tab** indent / outdent
+  them all; Shift+Tab alone outdents the current line.
+- **Lists and quotes** (Markdown and text files):
+  - **Enter** in a list item starts the next one with the same bullet (`-`, `*`, `+`); numbers
+    count up (`1.` → `2.`), and after a task item (`- [x]`) the new one is unticked. Text after
+    the cursor moves to the new item.
+  - **Numbered lists stay numbered 1, 2, 3…**: adding an item, or nesting / un-nesting one
+    with Tab / Shift+Tab, renumbers the items after it (a list that starts at 5 keeps its start;
+    a new sub-list starts at 1).
+  - **Enter on an empty item** removes the bullet: the list ends there.
+  - **Enter in a quote** continues it with `> `; an empty quote line ends it.
+  - **Tab / Shift+Tab** on a list item (cursor anywhere on it) nest it under the item above /
+    bring it back up a level.
+  - **Shift+Enter** is always a plain new line. Code blocks are left alone.
 - **Line endings are kept:** a file with Windows (CRLF) line endings is saved with CRLF again.
 
 ### Diagrams
@@ -107,9 +136,50 @@ flowchart LR
 - Diagrams are shown as images, so nothing in a diagram can run code; links inside diagrams
   aren't clickable.
 
+## Editing in the preview
+
+The preview of Markdown and text files is editable too: click into it and type, and the Markdown
+on the left updates as you go.
+
+- **Right-click** for a formatting menu: Bold, Italic, Strikethrough, Inline Code, and for the
+  paragraph Normal Text, Heading 1–3, Bulleted / Numbered List, Quote and Code Block. Each item
+  shows the Markdown it writes (`**text**`, `# Heading`, `> text` …), a checkmark shows what's
+  already applied (pick it again to remove it), and right-clicking a word with nothing selected
+  selects that word.
+- **In a table**, right-click shows table options instead of paragraph types: Insert Row
+  Above / Below, Insert Column Left / Right, Align Column Left / Center / Right (`:---`,
+  `:-:`, `---:`), Delete Row / Column / Table, plus Bold, Italic & co. for the cell text.
+  Inserting a row above the header makes a new header (the old one becomes a row); deleting the
+  header row makes the next row the header. **Tab** / **Shift+Tab** move between cells, and Tab
+  in the last cell adds a row. The Markdown table is kept aligned.
+- After a format is applied, the Markdown it added **lights up** in the editor for a moment
+  (just the `**` of a bold word, even when the table around it is re-padded), so you can see
+  how it's written in Markdown.
+- Shortcuts in the preview: **Cmd+B** bold, **Cmd+I** italic, **Shift+Cmd+X** strikethrough,
+  **Cmd+E** inline code. Cmd+B / Cmd+I also work in the Markdown editor itself.
+- Enter starts a new paragraph or list item; task-list checkboxes can be ticked.
+- Only the paragraph, list, table … you edit is rewritten. Everything else keeps its exact
+  source text, and the edited block keeps your style where it can (`_italic_`, `*` bullets).
+  Tables you edit come out aligned.
+- What you type shows up literally: typing `*` or `#` in the preview writes `\*` / `\#`.
+- Pasting into the preview pastes plain text. Diagrams and raw HTML can't be edited there
+  (only deleted). Cmd+click opens a link.
+- **Undo / Redo** (Cmd+Z / Shift+Cmd+Z) is one history for both panes.
+- Chromium sometimes turns the line break of a hard-wrapped paragraph into a space when you edit
+  right next to it. The result renders the same.
+
 ## Tools
 
-The **Help!** menu in the editor header:
+The **Edit** button in the editor header, and **right-click** in the editor, open the same menu.
+
+**Formatting** (Markdown and text files): the same items as the preview's right-click menu —
+Bold, Italic, Strikethrough, Inline Code, and Normal Text, Heading 1–3, Bulleted / Numbered
+List, Quote, Code Block for the line(s) you're on (a paragraph as a whole if nothing is
+selected), or, with the cursor in a table, the table options (insert / delete rows and columns,
+column alignment). Checkmarks show what's already applied; picking it again removes it. What
+changed lights up for a moment. Shortcuts: Cmd+B, Cmd+I, Shift+Cmd+X, Cmd+E.
+
+**Text tools:**
 
 - **Clean Up Pasted Text** – fixes the usual mess from PDFs, Word and e-mail:
   - rejoins words split across lines (`exam-` / `ple` → `example`); note that a real hyphenated

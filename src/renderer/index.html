@@ -43,11 +43,11 @@
         <div class="pane-header">
           <span id="editor-title" class="pane-title">Markdown</span>
           <div class="toolbar" role="toolbar" aria-label="Editing tools">
-            <!-- Opens a native menu of text tools (formatMenuTemplate in main.js) -->
+            <!-- Opens the native Edit menu, same as right-click in the editor (formatMenuTemplate in main.js) -->
             <button id="btn-format" class="tool-btn menu-btn" type="button" aria-haspopup="menu"
-              aria-label="Help! text tools"
-              title="Text tools — they apply to the selection, or to the whole document if nothing is selected">
-              Help!<span class="menu-caret" aria-hidden="true"></span>
+              aria-label="Edit: formatting and text tools"
+              title="Formatting and text tools (also on right-click). Text tools apply to the selection, or to the whole document if nothing is selected">
+              Edit<span class="menu-caret" aria-hidden="true"></span>
             </button>
           </div>
         </div>
@@ -89,6 +89,9 @@
   <script src="../text-format.js"></script>
   <script src="data-preview.js"></script>
   <script src="tools.js"></script>
+  <script src="html-to-markdown.js"></script>
+  <script src="undo-history.js"></script>
+  <script src="text-diff.js"></script>
   <script src="scroll-map.js"></script>
   <script src="export-html.js"></script>
   <script src="mermaid-render.js"></script>

@@ -20,12 +20,25 @@ contextBridge.exposeInMainWorld('markdownHelper', {
   copyRich: (html, text) => ipcRenderer.invoke('clipboard:write-rich', { html, text }),
   // Native Format menu at (x, y) in the window; resolves when it closes. Picks arrive as 'format'.
   showFormatMenu: (options) => ipcRenderer.invoke('format-menu:show', options),
+  // Right-click menu of the editable preview at (x, y); picks arrive as 'preview-format'.
+  // state: { editable, bold, italic, strike, code, block: 'p'|'h1'|'h2'|'h3'|'ul'|'ol'|'blockquote'|'pre' }
+  showPreviewMenu: (options) => ipcRenderer.invoke('preview-menu:show', options),
+  // Folder sidebar right-click menu; picks arrive as 'folder-action' ({ action, path, type }).
+  showFolderMenu: (options) => ipcRenderer.invoke('folder-menu:show', options),
+  // Sidebar file operations; all stay inside the open folder (checked in main).
+  createEntry: (dir, name, kind) => ipcRenderer.invoke('entry:create', { dir, name, kind }), // → new path
+  renameEntry: (target, name) => ipcRenderer.invoke('entry:rename', { target, name }), // → new path
+  duplicateEntry: (target) => ipcRenderer.invoke('entry:duplicate', target), // → new path
+  trashEntry: (target) => ipcRenderer.invoke('entry:trash', target), // asks first; → moved?
+  revealEntry: (target) => ipcRenderer.invoke('entry:reveal', target),
+  copyEntryPath: (target, relative) => ipcRenderer.invoke('entry:copy-path', { target, relative }),
 
   // Document state / window lifecycle
   reportState: (filePath, dirty) => ipcRenderer.send('doc:state', { filePath, dirty }),
   respondToClose: (proceed) => ipcRenderer.send('app:close-response', proceed),
 
   // Menu commands: 'new' | 'open' | 'open-folder' | 'save' | 'save-as' | 'copy-formatted' |
+  // 'undo' | 'redo' |
   // 'request-close', plus 'open-path' / 'open-folder-path' with a path argument and 'format' with
   // a FORMAT_COMMANDS key from renderer.js ('clean-up', 'uppercase', 'convert-table', …).
   onCommand: (handler) => {
@@ -36,6 +49,8 @@ contextBridge.exposeInMainWorld('markdownHelper', {
       'menu:save': 'save',
       'menu:save-as': 'save-as',
       'menu:copy-formatted': 'copy-formatted',
+      'menu:undo': 'undo',
+      'menu:redo': 'redo',
       'app:request-close': 'request-close',
     };
     for (const [channel, command] of Object.entries(map)) {
@@ -44,5 +59,7 @@ contextBridge.exposeInMainWorld('markdownHelper', {
     ipcRenderer.on('menu:open-path', (_e, filePath) => handler('open-path', filePath));
     ipcRenderer.on('menu:open-folder-path', (_e, folderPath) => handler('open-folder-path', folderPath));
     ipcRenderer.on('menu:format', (_e, command) => handler('format', command));
+    ipcRenderer.on('menu:preview-format', (_e, command) => handler('preview-format', command));
+    ipcRenderer.on('menu:folder-action', (_e, pick) => handler('folder-action', pick));
   },
 });

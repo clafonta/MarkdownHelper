@@ -1,50 +1,28 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-  <!-- Markdown Helper app icon. Follows the macOS icon grid: 824px tile centered on a 1024 canvas. -->
+  <!-- Markdown Helper app icon: "Highlighter + dot, G3", the final icon in brand/Final.dc.html
+       (board 08, 64-unit grid; same artwork at every size). Placed on the macOS icon grid: 824px
+       tile centered on a 1024 canvas (1 unit = 12.875px).
+       The ".md" is JetBrains Mono Bold 21/64 converted to outlines, so no font is needed to
+       render it. Regenerate build/icon.png + icon.icns with: npm run assets -->
   <defs>
-    <!-- Multi-color base: pink → orange → yellow → green → blue → violet, corner to corner -->
-    <linearGradient id="rainbow" x1="100" y1="100" x2="924" y2="924" gradientUnits="userSpaceOnUse">
-      <stop offset="0"    stop-color="#ff3d7f"/>
-      <stop offset="0.2"  stop-color="#ff8a3d"/>
-      <stop offset="0.38" stop-color="#ffd23f"/>
-      <stop offset="0.56" stop-color="#2fd39a"/>
-      <stop offset="0.76" stop-color="#2f8cff"/>
-      <stop offset="1"    stop-color="#8a4dff"/>
-    </linearGradient>
-    <!-- Soft color blooms layered on top so it reads as a blend, not stripes -->
-    <radialGradient id="bloomPink" cx="180" cy="840" r="520" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#ff4fd8" stop-opacity="0.75"/>
-      <stop offset="1" stop-color="#ff4fd8" stop-opacity="0"/>
-    </radialGradient>
-    <radialGradient id="bloomCyan" cx="860" cy="170" r="480" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#28e0ff" stop-opacity="0.7"/>
-      <stop offset="1" stop-color="#28e0ff" stop-opacity="0"/>
-    </radialGradient>
-    <linearGradient id="sheen" x1="0" y1="100" x2="0" y2="924" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#ffffff" stop-opacity="0.25"/>
-      <stop offset="0.45" stop-color="#ffffff" stop-opacity="0"/>
-    </linearGradient>
-    <clipPath id="tile">
-      <rect x="100" y="100" width="824" height="824" rx="185"/>
-    </clipPath>
-    <filter id="shadow" filterUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
-      <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#000" flood-opacity="0.28"/>
+    <!-- In the tile's 64-unit space: 12px down, 14px blur -->
+    <filter id="shadow" filterUnits="userSpaceOnUse" x="-8" y="-8" width="80" height="80">
+      <feDropShadow dx="0" dy="0.93" stdDeviation="1.09" flood-color="#000" flood-opacity="0.28"/>
     </filter>
+    <!-- G3: Paper → Amber tint, 135° -->
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FBF9F4"/>
+      <stop offset="1" stop-color="#F5E3BE"/>
+    </linearGradient>
   </defs>
-
-  <!-- Tile -->
-  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#rainbow)" filter="url(#shadow)"/>
-  <g clip-path="url(#tile)">
-    <rect x="100" y="100" width="824" height="824" fill="url(#bloomPink)"/>
-    <rect x="100" y="100" width="824" height="824" fill="url(#bloomCyan)"/>
-    <rect x="100" y="100" width="824" height="824" fill="url(#sheen)"/>
+  <g transform="translate(100 100) scale(12.875)">
+    <!-- tile -->
+    <rect x="0.5" y="0.5" width="63" height="63" rx="13.5" fill="url(#tile)" stroke="#E6DCC6" filter="url(#shadow)"/>
+    <!-- amber highlighter stroke -->
+    <path d="M7 31.5L51 28.5V54.5L7 56.5Z" fill="#F59F00"/>
+    <!-- ".md" -->
+    <path fill="#1B1F24" d="M16.4 50.71Q15.518 50.71 14.982 50.175Q14.447 49.639 14.447 48.778Q14.447 47.917 14.982 47.371Q15.518 46.825 16.4 46.825Q17.282 46.825 17.817 47.371Q18.353 47.917 18.353 48.778Q18.353 49.639 17.817 50.175Q17.282 50.71 16.4 50.71ZM23.687 50.5V38.95H25.871V40.63H25.934Q25.997 39.79 26.522 39.265Q27.047 38.74 27.845 38.74Q28.622 38.74 29.168 39.233Q29.714 39.727 29.903 40.567Q29.987 39.727 30.523 39.233Q31.058 38.74 31.877 38.74Q32.927 38.74 33.62 39.569Q34.313 40.399 34.313 41.701V50.5H32.003V41.89Q32.003 41.323 31.741 40.998Q31.478 40.672 30.995 40.672Q30.05 40.672 30.05 41.89V50.5H27.95V41.89Q27.95 41.323 27.709 40.998Q27.467 40.672 27.005 40.672Q25.997 40.672 25.997 41.89V50.5ZM40.55 50.71Q38.87 50.71 37.831 49.513Q36.791 48.316 36.791 46.3V43.171Q36.791 41.134 37.82 39.937Q38.849 38.74 40.55 38.74Q41.747 38.74 42.576 39.349Q43.406 39.958 43.742 41.05L43.658 38.404V35.17H46.283V50.5H43.721V48.4Q43.406 49.492 42.587 50.101Q41.768 50.71 40.55 50.71ZM41.537 48.442Q42.545 48.442 43.102 47.833Q43.658 47.224 43.658 46.111V43.339Q43.658 42.226 43.102 41.617Q42.545 41.008 41.537 41.008Q40.529 41.008 39.972 41.554Q39.416 42.1 39.416 43.234V46.216Q39.416 47.35 39.972 47.896Q40.529 48.442 41.537 48.442Z"/>
+    <!-- the helper: a Signal-blue dot -->
+    <circle cx="49" cy="16" r="4.5" fill="#3D5AFE"/>
   </g>
-
-  <!-- Semi-transparent black disc with a faint rim -->
-  <circle cx="512" cy="512" r="318" fill="#000" fill-opacity="0.55"/>
-  <circle cx="512" cy="512" r="316" fill="none" stroke="#fff" stroke-opacity="0.18" stroke-width="4"/>
-
-  <!-- MDH -->
-  <text x="512" y="512" dy="0.35em" text-anchor="middle"
-        font-family="'SF Pro Display', 'Helvetica Neue', Helvetica, Arial, sans-serif"
-        font-size="190" font-weight="800" letter-spacing="4" fill="#fff">MDH</text>
 </svg>
