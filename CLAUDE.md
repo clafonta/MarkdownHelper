@@ -35,6 +35,9 @@ dark mode toggle (right).
   open; depth/file-count capped. `readDocument` in main refuses unsupported and >20 MB files.
 - `src/preload.js` – the only bridge (`window.markdownHelper`). Renderer is sandboxed with
   contextIsolation, so anything needing Node/Electron goes through IPC here.
+- `src/renderer/boot.js` – the only script in `<head>`: sets `data-platform` and `data-theme` on
+  `<html>` before the first paint (header room for the traffic lights, no light flash). Anything the
+  first paint depends on goes here, not in renderer.js (loaded last).
 - `src/renderer/` – loaded as classic `<script>` tags in this order:
   - `tools.js` – pure text transforms: `removeNewlines`, `formatTables` (window.MarkdownTools)
   - `scroll-map.js` – pure sync-scroll math (window.ScrollMap)

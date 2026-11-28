@@ -6,8 +6,6 @@
   const themeToggle = document.getElementById('theme-toggle');
   const bridge = window.markdownHelper || {};
 
-  document.documentElement.dataset.platform = bridge.platform || 'web';
-
   const { tokenStartLines, createScrollMap, interpolate } = window.ScrollMap;
 
   // ---------- Preview rendering ----------
