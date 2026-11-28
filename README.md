@@ -23,6 +23,8 @@ It runs automatically after `npm install` and before `npm start`.
 - `src/preload.js` – minimal bridge exposed to the UI
 - `src/renderer/` – UI: `index.html`, `styles.css`, `renderer.js`
 
+Fonts: [Inter](https://rsms.me/inter/), [Space Grotesk](https://github.com/floriankarsten/space-grotesk) and [JetBrains Mono](https://www.jetbrains.com/lp/mono/) (SIL Open Font License, bundled in `src/renderer/fonts/`); icons from [Lucide](https://lucide.dev) (ISC).
+
 Markdown is rendered with [marked](https://github.com/markedjs/marked) and sanitized with [DOMPurify](https://github.com/cure53/DOMPurify).
 Diagrams are drawn with [Mermaid](https://mermaid.js.org/).
 
@@ -174,7 +176,9 @@ on the left updates as you go.
   `:-:`, `---:`), Delete Row / Column / Table.
   Inserting a row above the header makes a new header (the old one becomes a row); deleting the
   header row makes the next row the header. **Tab** / **Shift+Tab** move between cells, and Tab
-  in the last cell adds a row. The Markdown table is kept aligned.
+  in the last cell adds a row. **Enter** moves to the cell below; in the last row it leaves the
+  table with a new paragraph under it (**↓** in the last row does the same). Clicking in the empty
+  space below the last block also starts a new paragraph there. The Markdown table is kept aligned.
 - After a format is applied, the Markdown it added **lights up** in the editor for a moment
   (just the `**` of a bold word, even when the table around it is re-padded), so you can see
   how it's written in Markdown.
@@ -243,6 +247,11 @@ In the preview header:
   text: headings, bold/italic, lists, links, code and tables, but no fonts, sizes or colors, so it
   takes on the style of wherever you paste it (Google Docs headings, your email font, etc.). Plain text is
   included for apps that don't accept formatting.
+**View:** the three buttons at the top right (next to Dark mode), or View ▸ in the menu bar,
+show **Markdown only** (⌘1), **Markdown and Preview** (⌘2) or **Preview only** (⌘3). The
+choice is remembered. Preview only keeps lines to a comfortable reading width; Cmd+F there
+switches back to both panes, since the find bar is above the Markdown.
+
 Drag the divider between the panes to resize them (double-click it to reset to 50/50). It can
 also be focused with Tab and moved with the arrow keys (Shift for bigger steps). The split is
 remembered between launches.

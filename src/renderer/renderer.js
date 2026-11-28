@@ -833,6 +833,65 @@
     else if (!e.shiftKey) applyPreviewFormat('table-row-below');
   });
 
+  // Getting out of a table (or past a code block / diagram at the end) in the preview:
+  // contenteditable gives the cursor no place below the last block, so we make one. An empty
+  // paragraph is added only when needed; it changes the Markdown once something is typed in it.
+  function paragraphAfter(block) {
+    const p = make('p');
+    p.append(make('br')); // an empty paragraph needs something to hold the cursor
+    block.after(p);
+    putCaretIn(p, false);
+    p.scrollIntoView({ block: 'nearest' });
+    return p;
+  }
+
+  const topBlockOf = (node) => {
+    let n = node;
+    while (n && n.parentNode !== preview) n = n.parentNode;
+    return n;
+  };
+
+  // Enter in a cell: the cell below; in the last row, a new paragraph under the table.
+  // ↓ in the last row: the block after the table (or a new paragraph if there is none).
+  preview.addEventListener('keydown', (e) => {
+    if ((e.key !== 'Enter' && e.key !== 'ArrowDown') || e.metaKey || e.ctrlKey || e.altKey || !isPreviewEditable()) return;
+    const cell = cellAtCursor();
+    if (!cell) return;
+    const table = cell.closest('table');
+    const rows = [...table.rows];
+    const lastRow = cell.parentElement === rows[rows.length - 1];
+    if (e.key === 'Enter') {
+      e.preventDefault(); // (a Markdown table cell can't hold a line break)
+      if (e.shiftKey) return;
+      if (!lastRow) {
+        const below = rows[rows.indexOf(cell.parentElement) + 1];
+        putCaretIn(below.cells[Math.min(cell.cellIndex, below.cells.length - 1)]);
+        return;
+      }
+      paragraphAfter(topBlockOf(table));
+      return;
+    }
+    if (!lastRow || e.shiftKey) return; // ↓ inside the table: the browser moves between rows
+    e.preventDefault();
+    const top = topBlockOf(table);
+    const next = top.nextElementSibling;
+    if (next && next.isContentEditable) putCaretIn(next, false);
+    else paragraphAfter(top);
+  });
+
+  // A click in the empty space below the last block: put the cursor in a new paragraph there
+  // (instead of the browser putting it back into the last table cell or code block).
+  preview.addEventListener('mousedown', (e) => {
+    if (e.button !== 0 || e.target !== preview || !isPreviewEditable()) return;
+    const last = preview.lastElementChild;
+    if (!last || e.clientY <= last.getBoundingClientRect().bottom) return;
+    e.preventDefault();
+    preview.focus({ preventScroll: true });
+    if (last.tagName === 'P' && !last.textContent.trim()) putCaretIn(last, false); // one is already there
+    else if (last.tagName === 'P' || /^H[1-6]$/.test(last.tagName)) putCaretIn(last); // text: its end
+    else paragraphAfter(last);
+  });
+
   const escapeHtml = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
   function toggleInlineCode() {
@@ -1450,6 +1509,38 @@
   // The saved ratio is kept as the window resizes; only re-clamp to the minimum widths.
   window.addEventListener('resize', () => applySplit(split, false));
 
+  // ---------- View mode: Markdown only / both panes / Preview only ----------
+  // The buttons in the header and View ▸ (⌘1 / ⌘2 / ⌘3). data-view on .panes hides the other pane
+  // and the divider (styles.css); the choice is remembered. Both panes keep working while hidden
+  // (the preview still renders, so switching back is instant and Copy works from either mode).
+  const VIEW_KEY = 'markdown-helper:view';
+  const VIEW_MODES = ['editor', 'split', 'preview'];
+  const viewButtons = [...document.querySelectorAll('#view-switch .view-btn')];
+  let viewMode = 'split';
+
+  function applyView(mode, persist) {
+    viewMode = VIEW_MODES.includes(mode) ? mode : 'split';
+    workspace.dataset.view = viewMode;
+    for (const btn of viewButtons) btn.setAttribute('aria-pressed', String(btn.dataset.view === viewMode));
+    if (persist) {
+      try { localStorage.setItem(VIEW_KEY, viewMode); } catch { /* ignore */ }
+    }
+    // Keep the keyboard in a pane that's still visible.
+    if (viewMode === 'preview' && document.activeElement === editor) preview.focus();
+    if (viewMode === 'editor' && preview.contains(document.activeElement)) editor.focus();
+    invalidateScrollMap();
+    if (viewMode === 'split') {
+      applySplit(split, false);
+      syncScroll(editor);
+    }
+  }
+
+  for (const btn of viewButtons) {
+    btn.addEventListener('mousedown', (e) => e.preventDefault()); // don't take focus from the text
+    btn.addEventListener('click', () => applyView(btn.dataset.view, true));
+  }
+  try { applyView(localStorage.getItem(VIEW_KEY) || 'split', false); } catch { applyView('split', false); }
+
   // ---------- Copy formatted ----------
   const copyBtn = document.getElementById('btn-copy');
   let copyResetTimer = 0;
@@ -1900,6 +1991,7 @@
   }
 
   function openFind(withReplace) {
+    if (viewMode === 'preview') applyView('split', true); // the find bar is in the Markdown pane
     // Start from the selected text (in either pane), if it's on one line.
     const selected = preview.contains(document.activeElement)
       ? String(getSelection())
@@ -2227,6 +2319,7 @@
       case 'format': return runFormatCommand(arg);
       case 'preview-format': return applyPreviewFormat(arg);
       case 'folder-action': return runFolderAction(arg);
+      case 'view': return applyView(arg, true);
       case 'find':
         if (arg === 'open' || arg === 'replace') return openFind(arg === 'replace');
         return findNext(arg === 'previous');

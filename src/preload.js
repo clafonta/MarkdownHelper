@@ -71,5 +71,6 @@ contextBridge.exposeInMainWorld('markdownHelper', {
     ipcRenderer.on('menu:preview-format', (_e, command) => handler('preview-format', command));
     ipcRenderer.on('menu:folder-action', (_e, pick) => handler('folder-action', pick));
     ipcRenderer.on('menu:find', (_e, action) => handler('find', action)); // open | replace | next | previous
+    ipcRenderer.on('menu:view', (_e, mode) => handler('view', mode)); // editor | split | preview
   },
 });

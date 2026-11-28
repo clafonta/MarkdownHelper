@@ -1,7 +1,9 @@
 # Markdown Helper – notes for Claude
 
 Lightweight two-pane Markdown editor for macOS built on Electron (plain HTML/CSS/JS, no framework,
-no bundler). Left pane: raw Markdown + an "Edit" menu button (formatting + text tools; same menu on right-click). Right pane: live preview + sync-scroll toggle
+no bundler). Header view switch (Markdown only / both / Preview only, ⌘1–3; `applyView` in
+renderer.js, `data-view` on `.panes`, Lucide icons inlined, see `src/renderer/LICENSE-lucide.txt`).
+Left pane: raw Markdown + an "Edit" menu button (formatting + text tools; same menu on right-click). Right pane: live preview + sync-scroll toggle
 + Copy. Optional left-most file sidebar (only while a folder is open: `mdh somefolder`, File → Open
 Folder…, or dropping a folder) listing all the folder's files, unsupported ones greyed out.
 Opens Markdown, text, HTML, CSV/TSV, JSON, SVG and common code/config files (list in
@@ -49,11 +51,12 @@ dark mode toggle (right).
   - `export-html.js` – clean semantic HTML for "Copy" (no fonts/sizes/colors) (window.ExportHtml; DOM-dependent)
   - `renderer.js` – UI wiring: rendering, document state, toolbar, sync scroll, theme, folder sidebar
 - `build/` – icon + DMG background SVG sources **and** their generated PNG/ICNS (committed on
-  purpose: electron-builder reads them directly). `icon.svg` is the brand kit's final icon
-  (`brand/Final.dc.html`, "08 — Focus · G3", 64-unit grid, same art at every size) placed on the
-  macOS grid (824px tile on 1024). The brand kit is re-exported over time: check `canvas.json`
-  for new boards and use the newest final/selected one. `brand/` is git-ignored (local only), so
-  `build/icon.svg` is the committed source of the icon. Its ".md" is JetBrains Mono Bold converted to outlines (no font needed to
+  purpose: electron-builder reads them directly). `icon.svg` is the brand icon
+  (`brand/BrandIcon.dc.html`, "Brand 01": ".md" on an amber highlight + a five-arm asterisk; 64-unit
+  grid, same art at every size) placed on the macOS grid (824px tile on 1024); its ".md" is
+  JetBrains Mono Bold converted to outlines. The kit's "Brand ·" boards (BrandIcon, BrandLockup,
+  BrandPalette, BrandType) are the source of truth; the others are exploration. `brand/` is
+  git-ignored (local only), so `build/icon.svg` is the committed source of the icon. Its ".md" is JetBrains Mono Bold converted to outlines (no font needed to
   render). After changing it: `npm run assets`, then `node scripts/brand-dev-electron.js`.
 - `scripts/make-assets.js` – rasterizes SVGs with Electron's Chromium + `iconutil`.
 - `scripts/brand-dev-electron.js` – renames dev `node_modules/electron/dist/Electron.app` to
@@ -93,7 +96,8 @@ dark mode toggle (right).
   Markdown (`.editor-flash`, laid out like `.editor-mirror`). Table commands live in a Table submenu
   (`formattingItems`: Insert Table outside a table, rows/columns/alignment in one via
   `state.table`); `tableCommand()` / `insertPreviewTable()` edit the DOM directly and sync; Tab
-  moves between cells. `previewFormatState()` feeds the menu's checkmarks. Never let a
+  moves between cells; Enter / ↓ in the last row and a click below the last block add an empty
+  `<p><br></p>` (`paragraphAfter`), which only reaches the Markdown once something is typed in it. `previewFormatState()` feeds the menu's checkmarks. Never let a
   `closest()` from the selection escape `#preview`. The editor's own Cmd+B/I is `toggleEmphasis`.
 - Editor formatting and text tools live in the native **Edit** menu (button `#btn-format` and
   right-click in the editor; `formatMenuTemplate` in main.js, popped up via `showFormatMenu` with
@@ -144,6 +148,11 @@ dark mode toggle (right).
 - `applyTool(..., { block: true })`: no selection = the paragraph around the cursor (Convert to Table).
 - Preview rendering is per top-level marked token, each element tagged `data-line` = source line;
   sync scroll depends on that. Sanitize everything with DOMPurify.
+- Brand in the UI: palette tokens in styles.css (`:root` = brand light; dark = Graphite + Signal
+  Light), the header lockup (`.app-title`: inline icon SVG colored by `--icon-*` tokens + "Markdown
+  Helper" in Space Grotesk), fonts bundled in `src/renderer/fonts/` (`fonts.css`; Inter = UI/body,
+  Space Grotesk = headings/wordmark, JetBrains Mono = editor/code, ligatures off in the editor;
+  OFL licenses alongside). No fonts from the network (CSP + offline).
 - Theme colors are CSS variables on `:root` / `:root[data-theme="dark"]`. Copy output sets no colors,
   fonts or sizes at all (the paste target's own styles apply), so the theme never leaks into it.
 - localStorage keys are prefixed `markdown-helper:`.

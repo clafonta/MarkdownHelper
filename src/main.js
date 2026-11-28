@@ -593,6 +593,10 @@ ipcMain.on('theme:set', (_event, mode) => {
 
 // ---------- Menu ----------
 
+function sendView(mode) {
+  BrowserWindow.getFocusedWindow()?.webContents.send('menu:view', mode);
+}
+
 function sendFind(action) {
   BrowserWindow.getFocusedWindow()?.webContents.send('menu:find', action);
 }
@@ -668,7 +672,24 @@ function buildMenu() {
         },
       ],
     },
-    { role: 'viewMenu' },
+    {
+      label: 'View',
+      submenu: [
+        // Which panes show (renderer.js "View mode"; also the buttons in the header).
+        { label: 'Markdown Only', accelerator: 'CmdOrCtrl+1', click: () => sendView('editor') },
+        { label: 'Markdown and Preview', accelerator: 'CmdOrCtrl+2', click: () => sendView('split') },
+        { label: 'Preview Only', accelerator: 'CmdOrCtrl+3', click: () => sendView('preview') },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' },
+        { type: 'separator' },
+        { role: 'reload' },
+        { role: 'toggleDevTools' },
+      ],
+    },
     { role: 'windowMenu' },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
