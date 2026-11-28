@@ -31,6 +31,114 @@
   let counter = 0;
   let configuredTheme = null;
 
+  // Brand colors on mermaid's 'base' theme (the only one that takes themeVariables). A diagram's
+  // own front-matter `config:` / %%{init}%% still overrides these. The font is a system one on
+  // purpose: mermaid measures labels with the app's fonts, but the <img> can't load our bundled
+  // fonts, so a brand font would be measured as Inter and drawn as a fallback (clipped labels).
+  const FONT = '-apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif';
+  // Mid tones, so the labels (Graphite) read on every slice, in both themes.
+  const PIE = {
+    pie1: '#7b8fff', pie2: '#ffc14d', pie3: '#b8bec7', pie4: '#b9c4ff', pie5: '#ffdf99', pie6: '#9aa3ae',
+    pie7: '#dde3ff', pie8: '#f7d08a', pie9: '#d9dce1', pie10: '#a3b1ff', pie11: '#e8b04a', pie12: '#c9ced5',
+    pieOpacity: '1', pieSectionTextColor: '#1b1f24',
+  };
+  const THEMES = {
+    light: {
+      darkMode: false,
+      fontFamily: FONT,
+      fontSize: '15px',
+      background: '#ffffff',
+      textColor: '#1b1f24', // Graphite
+      primaryColor: '#e8ecff', // Signal tint
+      primaryBorderColor: '#3d5afe', // Signal
+      gradientStart: '#3d5afe', gradientStop: '#3d5afe', // mermaid 12's "neo" look: one-color borders
+      dropShadow: 'drop-shadow(0 1px 2px rgba(27, 31, 36, 0.12))',
+      primaryTextColor: '#1b1f24',
+      secondaryColor: '#fbf0d6', // Amber tint
+      secondaryBorderColor: '#f59f00', // Amber
+      secondaryTextColor: '#1b1f24',
+      tertiaryColor: '#f6f5f1', // Paper
+      tertiaryBorderColor: '#d9dce1', // Line
+      tertiaryTextColor: '#1b1f24',
+      lineColor: '#5b6470', // Slate
+      edgeLabelBackground: '#ffffff',
+      clusterBkg: '#f6f5f1',
+      clusterBorder: '#d9dce1',
+      noteBkgColor: '#fff4d6',
+      noteBorderColor: '#f0d68c',
+      noteTextColor: '#1b1f24',
+      actorBkg: '#e8ecff',
+      actorBorder: '#3d5afe',
+      actorTextColor: '#1b1f24',
+      actorLineColor: '#b8bec7',
+      signalColor: '#1b1f24',
+      signalTextColor: '#1b1f24',
+      labelBoxBkgColor: '#f6f5f1',
+      labelBoxBorderColor: '#d9dce1',
+      labelTextColor: '#1b1f24',
+      loopTextColor: '#1b1f24',
+      activationBkgColor: '#fbf0d6',
+      activationBorderColor: '#f59f00',
+      ...PIE,
+      pieOuterStrokeColor: '#d9dce1', pieStrokeColor: '#ffffff', pieTitleTextColor: '#1b1f24', pieLegendTextColor: '#1b1f24',
+      // Gantt
+      taskBkgColor: '#e8ecff', taskBorderColor: '#3d5afe', taskTextColor: '#1b1f24', taskTextDarkColor: '#1b1f24',
+      taskTextLightColor: '#1b1f24', taskTextOutsideColor: '#1b1f24', taskTextClickableColor: '#3d5afe',
+      activeTaskBkgColor: '#c4ceff', activeTaskBorderColor: '#3d5afe',
+      doneTaskBkgColor: '#eef0f3', doneTaskBorderColor: '#b8bec7',
+      critBkgColor: '#fbf0d6', critBorderColor: '#f59f00',
+      sectionBkgColor: '#f6f5f1', sectionBkgColor2: '#ffffff', altSectionBkgColor: '#ffffff',
+      gridColor: '#e4e6ea', todayLineColor: '#f59f00',
+    },
+    dark: {
+      darkMode: true,
+      fontFamily: FONT,
+      fontSize: '15px',
+      background: '#1b1f24', // Graphite
+      textColor: '#f6f5f1', // Paper
+      primaryColor: '#222944', // Signal, dark tint
+      primaryBorderColor: '#6b82ff', // Signal Light
+      gradientStart: '#6b82ff', gradientStop: '#6b82ff',
+      dropShadow: 'drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5))',
+      primaryTextColor: '#f6f5f1',
+      secondaryColor: '#2e2a20', // Amber, dark tint
+      secondaryBorderColor: '#f59f00',
+      secondaryTextColor: '#f6f5f1',
+      tertiaryColor: '#22272e',
+      tertiaryBorderColor: '#3a414b',
+      tertiaryTextColor: '#f6f5f1',
+      lineColor: '#b8bec7', // Mist
+      edgeLabelBackground: '#1b1f24',
+      clusterBkg: '#22272e',
+      clusterBorder: '#3a414b',
+      noteBkgColor: '#3a3220',
+      noteBorderColor: '#5c4c22',
+      noteTextColor: '#f6f5f1',
+      actorBkg: '#222944',
+      actorBorder: '#6b82ff',
+      actorTextColor: '#f6f5f1',
+      actorLineColor: '#4a525d',
+      signalColor: '#f6f5f1',
+      signalTextColor: '#f6f5f1',
+      labelBoxBkgColor: '#22272e',
+      labelBoxBorderColor: '#3a414b',
+      labelTextColor: '#f6f5f1',
+      loopTextColor: '#f6f5f1',
+      activationBkgColor: '#2e2a20',
+      activationBorderColor: '#f59f00',
+      ...PIE,
+      pieOuterStrokeColor: '#3a414b', pieStrokeColor: '#1b1f24', pieTitleTextColor: '#f6f5f1', pieLegendTextColor: '#f6f5f1',
+      // Gantt
+      taskBkgColor: '#222944', taskBorderColor: '#6b82ff', taskTextColor: '#f6f5f1', taskTextDarkColor: '#f6f5f1',
+      taskTextLightColor: '#f6f5f1', taskTextOutsideColor: '#f6f5f1', taskTextClickableColor: '#6b82ff',
+      activeTaskBkgColor: '#323c63', activeTaskBorderColor: '#6b82ff',
+      doneTaskBkgColor: '#2a3038', doneTaskBorderColor: '#4a525d',
+      critBkgColor: '#3a3220', critBorderColor: '#f59f00',
+      sectionBkgColor: '#22272e', sectionBkgColor2: '#1b1f24', altSectionBkgColor: '#1b1f24',
+      gridColor: '#3a414b', todayLineColor: '#f59f00',
+    },
+  };
+
   /** Reads the diagram's natural size from its viewBox. */
   function sizeOf(svg) {
     const box = svg.match(/viewBox="[-\d.]+\s+[-\d.]+\s+([\d.]+)\s+([\d.]+)"/);
@@ -42,9 +150,12 @@
       mermaid.initialize({
         startOnLoad: false,
         securityLevel: 'strict',
-        theme: theme === 'dark' ? 'dark' : 'default',
+        theme: 'base',
+        themeVariables: THEMES[theme === 'dark' ? 'dark' : 'light'],
+        fontFamily: FONT,
         htmlLabels: false,
         flowchart: { htmlLabels: false },
+        gantt: { fontSize: 13, sectionFontSize: 13, barHeight: 26, barGap: 6, leftPadding: 80 },
       });
       configuredTheme = theme;
     }

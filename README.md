@@ -157,6 +157,12 @@ flowchart LR
 
 - A diagram with a mistake shows Mermaid's error message instead of the drawing.
 - While you edit a diagram, the previous drawing stays (faded) until you pause typing.
+- **Click a diagram to zoom.** It opens over the panes, fitted to the window. Pinch, ⌘-scroll or
+  **+** / **−** zoom; scroll, drag or the arrow keys pan; **0** fits, **1** is actual size,
+  double-click switches between the two, and **Esc** closes.
+- Diagrams use the app's colors (Signal blue, Amber, Paper) in both light and dark mode. To style
+  one diagram differently, give it its own Mermaid config, e.g. a front-matter block with
+  `config: { theme: forest }` or `themeVariables`, or use `classDef` / `style` lines.
 - Diagrams follow dark mode. **Copy** puts them on the clipboard as light-theme PNG images on
   white, so they paste into Google Docs, Word and e-mail.
 - Diagrams are shown as images, so nothing in a diagram can run code; links inside diagrams

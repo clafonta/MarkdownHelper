@@ -102,6 +102,9 @@
     const img = new Image();
     img.alt = 'Diagram';
     img.style.width = `${result.width}px`;
+    img.dataset.width = String(result.width); // natural size, for the zoom view
+    img.dataset.height = String(result.height);
+    img.title = 'Click to zoom';
     img.src = window.MermaidRender.svgUrl(result.svg);
     block.replaceChildren(img);
   }
@@ -149,6 +152,147 @@
     preview.replaceChildren(mermaidBlock(source, 0, previous));
     drawPendingDiagrams();
   }
+
+  // ---------- Diagram zoom (click a diagram in the preview) ----------
+  // The diagram's SVG image over the panes at any size: pinch / ⌘-scroll / + − zoom about the
+  // pointer, scroll or drag pans, double-click toggles Fit ↔ 100%, Escape closes. The image is
+  // resized (not CSS-scaled) so the SVG is redrawn sharp at every zoom. Math: zoom-view.js.
+  const zoomBox = document.getElementById('diagram-zoom');
+  const zoomViewport = zoomBox.querySelector('.diagram-zoom-viewport');
+  const zoomImg = zoomBox.querySelector('.diagram-zoom-img');
+  const zoomLevel = zoomBox.querySelector('.diagram-zoom-level');
+  const Zoom = window.ZoomView;
+  const zoom = { open: false, content: null, view: null, fitted: true, source: null, returnFocus: null };
+  const zoomViewportSize = () => ({ width: zoomViewport.clientWidth, height: zoomViewport.clientHeight });
+
+  function paintZoom() {
+    const { scale, x, y } = zoom.view;
+    zoomImg.style.width = `${zoom.content.width * scale}px`;
+    zoomImg.style.height = `${zoom.content.height * scale}px`;
+    zoomImg.style.transform = `translate(${x}px, ${y}px)`;
+    zoomLevel.textContent = `${Math.round(scale * 100)}%`;
+  }
+
+  function setZoomView(view, fitted = false) {
+    zoom.view = view;
+    zoom.fitted = fitted;
+    paintZoom();
+  }
+
+  const fitZoom = () => setZoomView(Zoom.fitView(zoom.content, zoomViewportSize()), true);
+
+  function zoomTo(scale, point = { x: zoomViewport.clientWidth / 2, y: zoomViewport.clientHeight / 2 }) {
+    setZoomView(Zoom.zoomAt(zoom.view, scale, point, zoom.content, zoomViewportSize()));
+  }
+
+  function openZoom(img) {
+    const width = Number(img.dataset.width);
+    const height = Number(img.dataset.height);
+    if (!width || !height) return;
+    zoom.content = { width, height };
+    zoom.source = mermaidSources.get(img.closest('.mermaid-diagram'));
+    zoom.returnFocus = document.activeElement;
+    zoomImg.src = img.src;
+    zoomBox.hidden = false;
+    zoom.open = true;
+    fitZoom();
+    zoomBox.focus();
+  }
+
+  function closeZoom() {
+    if (!zoom.open) return;
+    zoom.open = false;
+    zoomBox.hidden = true;
+    zoomImg.removeAttribute('src');
+    zoom.returnFocus?.focus?.({ preventScroll: true });
+  }
+
+  /** Dark mode toggled while zoomed: show the same diagram in the new theme. */
+  async function refreshZoomTheme() {
+    if (!zoom.open || zoom.source == null) return;
+    const result = await window.MermaidRender.render(zoom.source, previewTheme());
+    if (zoom.open && result.svg) zoomImg.src = window.MermaidRender.svgUrl(result.svg);
+  }
+
+  preview.addEventListener('click', (e) => {
+    const img = e.target.closest('.mermaid-diagram img');
+    if (img && preview.contains(img) && e.button === 0) openZoom(img);
+  });
+
+  zoomBox.querySelector('.diagram-zoom-bar').addEventListener('click', (e) => {
+    const action = e.target.closest('[data-zoom]')?.dataset.zoom;
+    if (action === 'in') zoomTo(zoom.view.scale * 1.25);
+    else if (action === 'out') zoomTo(zoom.view.scale / 1.25);
+    else if (action === 'fit') fitZoom();
+    else if (action === 'actual') zoomTo(1);
+    else if (action === 'close') closeZoom();
+  });
+
+  const pointIn = (e) => {
+    const r = zoomViewport.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  };
+
+  // Trackpad pinch arrives as a wheel event with ctrlKey; ⌘-scroll zooms too; plain scroll pans.
+  zoomViewport.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    if (e.ctrlKey || e.metaKey) {
+      const step = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+      zoomTo(zoom.view.scale * Math.exp(-step * (e.ctrlKey ? 0.01 : 0.002)), pointIn(e));
+    } else {
+      setZoomView(Zoom.panBy(zoom.view, -e.deltaX, -e.deltaY, zoom.content, zoomViewportSize()));
+    }
+  }, { passive: false });
+
+  let panFrom = null;
+  zoomViewport.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    panFrom = { x: e.clientX, y: e.clientY };
+    zoomViewport.setPointerCapture(e.pointerId);
+    zoomViewport.classList.add('is-panning');
+  });
+  zoomViewport.addEventListener('pointermove', (e) => {
+    if (!panFrom) return;
+    const dx = e.clientX - panFrom.x;
+    const dy = e.clientY - panFrom.y;
+    panFrom = { x: e.clientX, y: e.clientY };
+    setZoomView(Zoom.panBy(zoom.view, dx, dy, zoom.content, zoomViewportSize()));
+  });
+  const endPan = () => { panFrom = null; zoomViewport.classList.remove('is-panning'); };
+  zoomViewport.addEventListener('pointerup', endPan);
+  zoomViewport.addEventListener('pointercancel', endPan);
+
+  zoomViewport.addEventListener('dblclick', (e) => {
+    if (zoom.fitted && Math.abs(zoom.view.scale - 1) > 0.01) zoomTo(1, pointIn(e));
+    else fitZoom();
+  });
+
+  zoomBox.addEventListener('keydown', (e) => {
+    if (e.metaKey || e.ctrlKey || e.altKey) return; // menu shortcuts
+    const PAN = 60;
+    const actions = {
+      Escape: closeZoom,
+      '+': () => zoomTo(zoom.view.scale * 1.25),
+      '=': () => zoomTo(zoom.view.scale * 1.25),
+      '-': () => zoomTo(zoom.view.scale / 1.25),
+      0: fitZoom,
+      1: () => zoomTo(1),
+      ArrowLeft: () => setZoomView(Zoom.panBy(zoom.view, PAN, 0, zoom.content, zoomViewportSize())),
+      ArrowRight: () => setZoomView(Zoom.panBy(zoom.view, -PAN, 0, zoom.content, zoomViewportSize())),
+      ArrowUp: () => setZoomView(Zoom.panBy(zoom.view, 0, PAN, zoom.content, zoomViewportSize())),
+      ArrowDown: () => setZoomView(Zoom.panBy(zoom.view, 0, -PAN, zoom.content, zoomViewportSize())),
+    };
+    const action = actions[e.key];
+    if (!action) return;
+    e.preventDefault();
+    action();
+  });
+
+  window.addEventListener('resize', () => {
+    if (!zoom.open) return;
+    if (zoom.fitted) fitZoom();
+    else setZoomView(Zoom.clampPan(zoom.view, zoom.content, zoomViewportSize()));
+  });
 
   /** Copy: diagrams go to the clipboard as light-theme PNGs (documents and mail don't take SVG). */
   async function prepareDiagramsForCopy() {
@@ -1611,6 +1755,7 @@
     const dark = mode === 'dark';
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
     if (preview.querySelector('.mermaid-diagram')) scheduleRender(); // redraw in the new theme
+    refreshZoomTheme();
     themeToggle.setAttribute('aria-checked', String(dark));
     if (bridge.setTheme) bridge.setTheme(dark ? 'dark' : 'light');
     if (persist) {
@@ -2803,6 +2948,7 @@ console.log('Hello, Markdown!');
 Write a code block marked \`mermaid\` and it's drawn as a diagram:
 flowcharts, sequence diagrams, pie charts, mind maps and more.
 \`.mmd\` and \`.mermaid\` files open as diagrams too.
+**Click a diagram** to zoom in on it (pinch or Cmd-scroll, drag to move, Esc to close).
 
 \`\`\`mermaid
 flowchart TD

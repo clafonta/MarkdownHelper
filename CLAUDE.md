@@ -41,6 +41,7 @@ dark mode toggle (right).
 - `src/renderer/` – loaded as classic `<script>` tags in this order:
   - `tools.js` – pure text transforms: `removeNewlines`, `formatTables` (window.MarkdownTools)
   - `scroll-map.js` – pure sync-scroll math (window.ScrollMap)
+  - `zoom-view.js` – pure zoom/pan math for the diagram zoom view (window.ZoomView)
   - `data-preview.js` – pure CSV/TSV parsing and JSON pretty-print/error location (window.DataPreview)
   - `mermaid-render.js` – Mermaid: lazy-loads `../vendor/mermaid.min.js`, renders one diagram at a
     time, caches by theme + source, SVG→PNG for Copy (window.MermaidRender; DOM-dependent)
@@ -176,7 +177,12 @@ dark mode toggle (right).
   (from `parseJsonTree`) for sync scroll. Copy for JSON exports the pretty text, not the widget.
 - Mermaid: ```mermaid blocks (and `.mmd`/`.mermaid` files) become `.mermaid-diagram` blocks with
   `data-line`, filled asynchronously with an `<img>` of the SVG. Rendered as images, not inline
-  SVG, so they need no DOMPurify pass: an image can't run scripts or leak styles. Config is
+  SVG, so they need no DOMPurify pass: an image can't run scripts or leak styles.
+  Brand colors via mermaid's `base` theme + `THEMES` in mermaid-render.js (mermaid 12's "neo" look:
+  `gradientStart`/`gradientStop` set to one color, else borders fade Signal → Amber); a diagram's own
+  front-matter config still wins. System font on purpose (labels are measured with the page's fonts
+  but the `<img>` can't load ours). Clicking a diagram opens `#diagram-zoom` ("Diagram zoom" in
+  renderer.js): the `<img>` is resized, not CSS-scaled, so the SVG stays sharp. Config is
   `securityLevel: 'strict'` + `htmlLabels: false` (no `<foreignObject>`, otherwise the canvas used
   for Copy's PNG gets tainted). Theme changes re-render; Copy always exports the light theme.
 - Sync scroll anchors are any `#preview [data-line]` element (Markdown blocks, CSV/TSV rows),

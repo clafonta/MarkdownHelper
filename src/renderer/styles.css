@@ -655,7 +655,7 @@ body {
 
 /* Mermaid diagrams: an <img> of the drawing, centered, never wider than the preview. */
 .mermaid-diagram { margin: 0 0 1em; text-align: center; }
-.mermaid-diagram img { max-width: 100%; height: auto; }
+.mermaid-diagram img { max-width: 100%; height: auto; cursor: zoom-in; }
 .mermaid-diagram.is-stale { opacity: 0.45; transition: opacity 0.15s ease; } /* redrawing after an edit */
 .mermaid-error { text-align: left; }
 
@@ -832,3 +832,52 @@ body {
 .markdown-body hr { border: 0; height: 1px; background: var(--border); margin: 1.5em 0; }
 .markdown-body img { max-width: 100%; }
 .markdown-body input[type="checkbox"] { margin-right: 0.4em; }
+
+/* Diagram zoom: a Mermaid diagram full size over the panes (header stays visible). */
+.diagram-zoom {
+  position: fixed;
+  inset: var(--header-h) 0 0 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  outline: none;
+}
+.diagram-zoom[hidden] { display: none; }
+.diagram-zoom-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  height: var(--pane-header-h);
+  padding: 0 12px;
+  border-bottom: 1px solid var(--preview-header-border);
+  background: var(--preview-header-bg);
+  flex: none;
+}
+.diagram-zoom-bar .tool-btn { min-width: 32px; }
+.diagram-zoom-level {
+  min-width: 48px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.diagram-zoom-close { margin-left: 8px; }
+.diagram-zoom-viewport {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+}
+.diagram-zoom-viewport.is-panning { cursor: grabbing; }
+.diagram-zoom-img {
+  position: absolute;
+  left: 0;
+  top: 0;
+  max-width: none;
+  transform-origin: 0 0;
+  user-select: none;
+  -webkit-user-drag: none;
+}

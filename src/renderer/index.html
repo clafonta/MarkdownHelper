@@ -142,6 +142,20 @@
     </div>
   </main>
 
+  <!-- A Mermaid diagram, full size: click one in the preview. Zoom with pinch / ⌘-scroll / the
+       buttons, drag to pan, Escape closes (renderer.js "Diagram zoom", math in zoom-view.js). -->
+  <div id="diagram-zoom" class="diagram-zoom" role="dialog" aria-label="Diagram" tabindex="-1" hidden>
+    <div class="diagram-zoom-bar">
+      <button type="button" class="tool-btn" data-zoom="out" title="Zoom out (−)" aria-label="Zoom out">−</button>
+      <span class="diagram-zoom-level" aria-live="polite">100%</span>
+      <button type="button" class="tool-btn" data-zoom="in" title="Zoom in (+)" aria-label="Zoom in">+</button>
+      <button type="button" class="tool-btn" data-zoom="fit" title="Fit to window (0)">Fit</button>
+      <button type="button" class="tool-btn" data-zoom="actual" title="Actual size (1)">100%</button>
+      <button type="button" class="tool-btn diagram-zoom-close" data-zoom="close" title="Close (Esc)" aria-label="Close">✕</button>
+    </div>
+    <div class="diagram-zoom-viewport"><img class="diagram-zoom-img" alt="Diagram" draggable="false" /></div>
+  </div>
+
   <script src="../../node_modules/marked/lib/marked.umd.js"></script>
   <script src="../../node_modules/dompurify/dist/purify.min.js"></script>
   <script src="../file-types.js"></script>
@@ -153,6 +167,7 @@
   <script src="text-diff.js"></script>
   <script src="find.js"></script>
   <script src="scroll-map.js"></script>
+  <script src="zoom-view.js"></script>
   <script src="export-html.js"></script>
   <script src="mermaid-render.js"></script>
   <script src="renderer.js"></script>
