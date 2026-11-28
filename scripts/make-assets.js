@@ -1,7 +1,8 @@
 /**
  * Renders the SVG sources in build/ to the raster assets used for packaging:
  *   build/icon.svg           -> build/icon.png (1024px) + build/icon.icns
- *   build/dmg-background.svg -> build/background.png + build/background@2x.png
+ *   build/dmg-background.svg -> build/background.png + build/background@2x.png (with the brand
+ *     fonts from src/renderer/fonts embedded while rendering: an SVG image can't load font files)
  * Run with: npm run assets   (uses Electron's Chromium to rasterize, then macOS iconutil)
  */
 const { app, BrowserWindow } = require('electron');
@@ -16,6 +17,17 @@ const pngPath = path.join(buildDir, 'icon.png');
 const icnsPath = path.join(buildDir, 'icon.icns');
 
 let win;
+
+/** The SVG with its style element filled with @font-face rules for the bundled brand fonts. */
+function withBrandFonts(svg) {
+  const fontsDir = path.join(__dirname, '..', 'src', 'renderer', 'fonts');
+  const faces = [['Inter', 'inter'], ['Space Grotesk', 'space-grotesk'], ['JetBrains Mono', 'jetbrains-mono']]
+    .map(([family, file]) => {
+      const data = fs.readFileSync(path.join(fontsDir, `${file}-latin.woff2`)).toString('base64');
+      return `@font-face { font-family: '${family}'; font-weight: 100 900; src: url(data:font/woff2;base64,${data}) format('woff2'); }`;
+    });
+  return svg.replace(/<style>[^<]*<\/style>/, `<style>${faces.join('\n')}</style>`);
+}
 
 async function rasterize(svg, width, height = width) {
   if (!win) {
@@ -52,7 +64,7 @@ app.whenReady().then(async () => {
     execFileSync('iconutil', ['-c', 'icns', iconset, '-o', icnsPath]);
     fs.rmSync(path.dirname(iconset), { recursive: true, force: true });
 
-    const bg = fs.readFileSync(path.join(buildDir, 'dmg-background.svg'), 'utf8');
+    const bg = withBrandFonts(fs.readFileSync(path.join(buildDir, 'dmg-background.svg'), 'utf8'));
     fs.writeFileSync(path.join(buildDir, 'background.png'), await rasterize(bg, 540, 380));
     fs.writeFileSync(path.join(buildDir, 'background@2x.png'), await rasterize(bg, 1080, 760));
     console.log('Wrote build/icon.png, build/icon.icns, build/background.png, build/background@2x.png');

@@ -58,7 +58,9 @@ dark mode toggle (right).
   BrandPalette, BrandType) are the source of truth; the others are exploration. `brand/` is
   git-ignored (local only), so `build/icon.svg` is the committed source of the icon. Its ".md" is JetBrains Mono Bold converted to outlines (no font needed to
   render). After changing it: `npm run assets`, then `node scripts/brand-dev-electron.js`.
-- `scripts/make-assets.js` – rasterizes SVGs with Electron's Chromium + `iconutil`.
+- `scripts/make-assets.js` – rasterizes SVGs with Electron's Chromium + `iconutil`. The DMG
+  background (`build/dmg-background.svg`, brand colors + type) gets the bundled brand fonts injected
+  into its `<style>` while rendering, since an SVG drawn as an image can't load font files.
 - `scripts/brand-dev-electron.js` – renames dev `node_modules/electron/dist/Electron.app` to
   `Markdown Helper.app` (the Dock's hover label is the bundle's file name) and points
   `node_modules/electron/path.txt` at it, sets the Info.plist names (menu bar), copies our icon,
