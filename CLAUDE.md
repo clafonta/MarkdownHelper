@@ -135,6 +135,9 @@ dark mode toggle (right).
   `checkName()`. Rename/trash of the open document's file (or a parent folder) updates
   `doc.filePath` (`movedOnDisk`; trashed → Untitled, dirty). Electron 45 `clipboard.writeText` is
   async.
+- Folder sidebar keyboard: clicks open with `openFile(path, { focusEditor: false })` so focus stays
+  in the tree; Up/Down (`openOnArrow`, 120 ms debounce) open the file landed on unless `doc.dirty`;
+  Enter opens + focuses the editor. `openSeq` makes the last of overlapping opens win.
 - Typing in the editor (Markdown/text): Enter → `continueList`, Tab/Shift+Tab → `indentLines`
   (tools.js, pure, tested in test/list-typing.test.js), applied with `applyEdit` (one undo step).
   They return null where the key should do its normal thing. Both renumber numbered lists

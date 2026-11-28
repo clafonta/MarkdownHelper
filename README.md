@@ -55,7 +55,10 @@ terminal) to get a **file sidebar** on the left listing everything in the folder
 subfolders. Click a file to open it in the editor. Files Markdown Helper can't open are shown
 greyed out; hidden files and `node_modules` are left out. The list refreshes when you
 switch back to the app or save a file into the folder (or click ↻), and × closes the sidebar.
-Arrow keys move through the list; Left/Right collapse and expand folders.
+After a click the focus stays in the list, so **↑ / ↓** step through the files, opening each
+one as you land on it (while the open file has unsaved changes they only move the selection;
+**Enter** opens it and asks about saving). Enter also jumps into the editor; Left/Right collapse
+and expand folders.
 
 **Right-click** in the sidebar for file and folder actions:
 

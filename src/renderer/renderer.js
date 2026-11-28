@@ -2227,7 +2227,7 @@
     }
   }
 
-  function loadDocument(filePath, content, eol = '\n') {
+  function loadDocument(filePath, content, eol = '\n', { focusEditor = true } = {}) {
     flushRecovery(); // the document being replaced keeps its copy if it wasn't saved
     docId = newDocId();
     recoveryStored = false;
@@ -2248,7 +2248,7 @@
     render();
     updateDirty();
     markActiveFile();
-    editor.focus();
+    if (focusEditor) editor.focus();
   }
 
   function reportError(action, err) {
@@ -2290,11 +2290,15 @@
     return choice === 'discard';
   }
 
-  async function openFile(filePath) {
+  // `focusEditor: false` keeps the focus where it is (the folder sidebar, so arrow keys keep
+  // walking the files). If several opens overlap (holding an arrow key), only the last one loads.
+  let openSeq = 0;
+  async function openFile(filePath, { focusEditor = true } = {}) {
+    const seq = ++openSeq;
     if (!(await confirmDiscard())) return;
     try {
       const result = filePath ? await bridge.openPath(filePath) : await bridge.openFile();
-      if (result) loadDocument(result.filePath, result.content, result.eol);
+      if (result && seq === openSeq) loadDocument(result.filePath, result.content, result.eol, { focusEditor });
     } catch (err) {
       reportError('open the file', err);
     }
@@ -2517,10 +2521,25 @@
     if (!btn) return;
     if (btn.classList.contains('tree-dir')) toggleDir(btn);
     else if (btn.getAttribute('aria-disabled') === 'true') return;
-    else if (btn.dataset.path !== doc.filePath) openFile(btn.dataset.path);
+    else if (btn.dataset.path !== doc.filePath) openFile(btn.dataset.path, { focusEditor: false });
   });
 
-  // Arrow keys walk the visible items; Left/Right collapse/expand folders.
+  const canOpen = (btn) => btn?.classList.contains('tree-file') && btn.getAttribute('aria-disabled') !== 'true';
+
+  // Up/Down open the file they land on (like Finder's preview), after a short pause so holding
+  // the key doesn't read every file on the way. Not while the document has unsaved changes:
+  // that would ask Save / Don't Save on every step; Enter opens it then.
+  let arrowOpenTimer = null;
+  function openOnArrow(btn) {
+    clearTimeout(arrowOpenTimer);
+    if (!canOpen(btn) || doc.dirty) return;
+    arrowOpenTimer = setTimeout(() => {
+      if (document.activeElement === btn && btn.dataset.path !== doc.filePath) openFile(btn.dataset.path, { focusEditor: false });
+    }, 120);
+  }
+
+  // Arrow keys walk the visible items (Up/Down also open files); Left/Right collapse/expand
+  // folders; Enter opens a file and moves into the editor.
   fileTree.addEventListener('keydown', (e) => {
     const btn = e.target.closest('.tree-item');
     if (!btn) return;
@@ -2529,6 +2548,13 @@
     const isDir = btn.classList.contains('tree-dir');
     const isOpen = btn.getAttribute('aria-expanded') === 'true';
     let next = null;
+    if (e.key === 'Enter' && canOpen(btn)) {
+      e.preventDefault(); // not the button's own click
+      clearTimeout(arrowOpenTimer);
+      if (btn.dataset.path === doc.filePath) editor.focus();
+      else openFile(btn.dataset.path);
+      return;
+    }
     if (e.key === 'ArrowDown') next = visible[i + 1];
     else if (e.key === 'ArrowUp') next = visible[i - 1];
     else if (e.key === 'Home') next = visible[0];
@@ -2540,7 +2566,9 @@
       else next = btn.closest('ul')?.previousElementSibling; // parent folder
     } else return;
     e.preventDefault();
-    next?.focus();
+    if (!next) return;
+    next.focus();
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') openOnArrow(next);
   });
 
   document.getElementById('btn-refresh-folder').addEventListener('click', refreshFolder);
